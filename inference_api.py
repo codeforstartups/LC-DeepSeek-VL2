@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
 from deepseek_vl2.utils.io import load_pil_images
 from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
@@ -24,7 +24,7 @@ except Exception as e:
     raise RuntimeError(f"Model or processor loading failed: {e}")
 
 @app.post("/infer/")
-async def infer(file: UploadFile = File(...), prompt: str = ""):
+async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
     logging.info(f"Received request: file={file.filename if file else None}, prompt={prompt}")
     try:
         if not file:
