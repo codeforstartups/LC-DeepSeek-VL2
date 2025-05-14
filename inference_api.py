@@ -1,10 +1,11 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
-from deepseek_vl2.utils.io import load_pil_images
 from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
 import torch
 import logging
 import os
+from io import BytesIO
+from PIL import Image
 
 app = FastAPI(
     title="DeepSeek-VL2 Inference API",
@@ -42,7 +43,9 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         try:
             logging.info("Attempting to load image with PIL...")
-            images = load_pil_images([{"images": [content]}])
+            pil_image = Image.open(BytesIO(content))
+            pil_image = pil_image.convert("RGB")
+            images = [pil_image]
             logging.info("Image loaded successfully.")
         except Exception as e:
             logging.error(f"Invalid image file: {e}")
