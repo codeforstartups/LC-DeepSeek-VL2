@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
-from deepseek_vl.utils.io import load_pil_images
-from deepseek_vl.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
+from deepseek_vl2.utils.io import load_pil_images
+from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
 import torch
 import logging
 
