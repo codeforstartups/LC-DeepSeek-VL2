@@ -17,9 +17,9 @@ app = FastAPI(
 # Load model & processor at startup
 try:
     dtype = torch.float16
-    processor = DeepseekVLV2Processor.from_pretrained("deepseek-ai/deepseek-vl2-small")
+    processor = DeepseekVLV2Processor.from_pretrained("deepseek-ai/deepseek-vl2-tiny")
     model = DeepseekVLV2ForCausalLM.from_pretrained(
-        "deepseek-ai/deepseek-vl2-small",
+        "deepseek-ai/deepseek-vl2-tiny",
         trust_remote_code=True,
         torch_dtype=dtype
     ).cuda().eval()
