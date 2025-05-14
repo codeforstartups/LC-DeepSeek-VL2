@@ -7,6 +7,8 @@ import os
 from io import BytesIO
 from PIL import Image
 
+logging.basicConfig(level=logging.INFO)
+
 app = FastAPI(
     title="DeepSeek-VL2 Inference API",
     description="Upload an image and prompt; returns VL2-generated text."
@@ -56,11 +58,12 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
             inputs = processor(
                 conversations=[{"role": "<|User|>", "content": prompt}],
                 images=images,
-                force_batchify=True
+                force_batchify=True,
+                system_prompt=""
             ).to(model.device)
             logging.info("Model inputs prepared.")
         except Exception as e:
-            logging.error(f"Input processing failed: {e}")
+            logging.error(f"Input processing failed: {repr(e)}")
             raise HTTPException(status_code=500, detail=f"Input processing failed: {e}")
         # Generate embeddings & output
         try:
@@ -68,13 +71,25 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
             embeds = model.prepare_inputs_embeds(**inputs)
             outputs = model.language_model.generate(
                 inputs_embeds=embeds,
+                input_ids=inputs.input_ids,
+                images=inputs.images,
+                images_seq_mask=inputs.images_seq_mask,
+                images_spatial_crop=inputs.images_spatial_crop,
                 attention_mask=inputs.attention_mask,
-                max_new_tokens=256
+                pad_token_id=processor.tokenizer.eos_token_id,
+                bos_token_id=processor.tokenizer.bos_token_id,
+                eos_token_id=processor.tokenizer.eos_token_id,
+                max_new_tokens=256,
+                do_sample=True,
+                temperature=0.4,
+                top_p=0.9,
+                repetition_penalty=1.1,
+                use_cache=True
             )
-            text = processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            text = processor.tokenizer.decode(outputs[0][len(inputs.input_ids[0]):].cpu().tolist(), skip_special_tokens=True)
             logging.info("Inference complete.")
         except Exception as e:
-            logging.error(f"Model inference failed: {e}")
+            logging.error(f"Model inference failed: {repr(e)}")
             raise HTTPException(status_code=500, detail=f"Model inference failed: {e}")
         logging.info(f"Returning response: {text}")
         return {"response": text}
@@ -82,5 +97,5 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
         logging.error(f"HTTPException: {he.detail}")
         raise he
     except Exception as e:
-        logging.error(f"Unexpected error: {e}")
+        logging.error(f"Unexpected error: {repr(e)}")
         return JSONResponse(status_code=500, content={"detail": f"Unexpected server error: {e}"})
