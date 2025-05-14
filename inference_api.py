@@ -94,7 +94,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
                 pad_token_id=processor.tokenizer.eos_token_id,
                 bos_token_id=processor.tokenizer.bos_token_id,
                 eos_token_id=processor.tokenizer.eos_token_id,
-                max_new_tokens=64,
+                max_new_tokens=128,
                 do_sample=True,
                 temperature=0.4,
                 top_p=0.9,
