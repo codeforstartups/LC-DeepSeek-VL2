@@ -73,6 +73,11 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
         # Prepare inputs
         try:
             logging.info("Preparing model inputs...")
+            system_prompt = (
+                "You are an expert OCR assistant. When the user provides an image, your task is to extract all visible text from the image as accurately as possible. "
+                "Return only the recognized text, formatted clearly and preserving the original structure (such as lines or paragraphs) if possible. "
+                "Do not add any extra commentary or explanation—just output the extracted text."
+            )
             inputs = processor(
                 conversations=[
                     {
@@ -84,7 +89,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
                 ],
                 images=images,
                 force_batchify=True,
-                system_prompt=""
+                system_prompt=system_prompt
             ).to(model.device, dtype=torch.float16)
             logging.info("Model inputs prepared.")
         except Exception as e:
