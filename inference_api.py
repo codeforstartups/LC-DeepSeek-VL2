@@ -67,7 +67,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
                 images=images,
                 force_batchify=True,
                 system_prompt=""
-            ).to(model.device)
+            ).to(model.device, dtype=torch.float16)
             logging.info("Model inputs prepared.")
         except Exception as e:
             logging.error(f"Input processing failed: {repr(e)}")
