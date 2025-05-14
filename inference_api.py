@@ -56,7 +56,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
         try:
             logging.info("Preparing model inputs...")
             inputs = processor(
-                conversations=[{"role": "<|User|>", "content": prompt}],
+                conversations=[{"role": "<|User|>", "content": prompt, "images": ["dummy.png"]}],
                 images=images,
                 force_batchify=True,
                 system_prompt=""
