@@ -76,7 +76,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
         try:
             logging.info("Generating embeddings and running inference...")
             embeds = model.prepare_inputs_embeds(**inputs)
-            outputs = model.language_model.generate(
+            outputs = model.generate(
                 inputs_embeds=embeds,
                 input_ids=inputs.input_ids,
                 images=inputs.images,
