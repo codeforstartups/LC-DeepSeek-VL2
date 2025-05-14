@@ -25,17 +25,22 @@ except Exception as e:
 
 @app.post("/infer/")
 async def infer(file: UploadFile = File(...), prompt: str = ""):
+    logging.info(f"Received request: file={file.filename if file else None}, prompt={prompt}")
     try:
         if not file:
+            logging.error("No file uploaded.")
             raise HTTPException(status_code=400, detail="No file uploaded.")
         if not prompt:
+            logging.error("Prompt is required.")
             raise HTTPException(status_code=400, detail="Prompt is required.")
         content = await file.read()
         if not content:
+            logging.error("Uploaded file is empty.")
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         try:
             images = load_pil_images([{"images": [content]}])
         except Exception as e:
+            logging.error(f"Invalid image file: {e}")
             raise HTTPException(status_code=400, detail=f"Invalid image file: {e}")
         # Prepare inputs
         try:
@@ -45,6 +50,7 @@ async def infer(file: UploadFile = File(...), prompt: str = ""):
                 force_batchify=True
             ).to(model.device)
         except Exception as e:
+            logging.error(f"Input processing failed: {e}")
             raise HTTPException(status_code=500, detail=f"Input processing failed: {e}")
         # Generate embeddings & output
         try:
@@ -56,9 +62,12 @@ async def infer(file: UploadFile = File(...), prompt: str = ""):
             )
             text = processor.tokenizer.decode(outputs[0], skip_special_tokens=True)
         except Exception as e:
+            logging.error(f"Model inference failed: {e}")
             raise HTTPException(status_code=500, detail=f"Model inference failed: {e}")
+        logging.info(f"Returning response: {text}")
         return {"response": text}
     except HTTPException as he:
+        logging.error(f"HTTPException: {he.detail}")
         raise he
     except Exception as e:
         logging.error(f"Unexpected error: {e}")
