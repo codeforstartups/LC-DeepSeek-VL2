@@ -28,13 +28,11 @@ except Exception as e:
     logging.error(f"Failed to load model or processor: {e}")
     raise RuntimeError(f"Model or processor loading failed: {e}")
 
-def resize_to_multiple(img, multiple=14):
-    width, height = img.size
-    new_width = ((width + multiple - 1) // multiple) * multiple
-    new_height = ((height + multiple - 1) // multiple) * multiple
-    if (new_width, new_height) != (width, height):
-        logging.info(f"Resizing image from ({width}, {height}) to ({new_width}, {new_height}) to match patch size multiple {multiple}.")
-        img = img.resize((new_width, new_height), Image.BICUBIC)
+def resize_to_multiple(img, multiple=14, fixed_size=224):
+    # Always resize to fixed_size x fixed_size, both multiples of 14
+    if img.size != (fixed_size, fixed_size):
+        logging.info(f"Resizing image from {img.size} to ({fixed_size}, {fixed_size}) to match patch size multiple {multiple} and reduce memory usage.")
+        img = img.resize((fixed_size, fixed_size), Image.BICUBIC)
     return img
 
 @app.post("/infer/")
@@ -56,7 +54,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
             logging.info("Attempting to load image with PIL...")
             pil_image = Image.open(BytesIO(content))
             pil_image = pil_image.convert("RGB")
-            pil_image = resize_to_multiple(pil_image, multiple=14)
+            pil_image = resize_to_multiple(pil_image, multiple=14, fixed_size=224)
             images = [pil_image]
             logging.info("Image loaded successfully.")
         except Exception as e:
@@ -96,7 +94,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
                 pad_token_id=processor.tokenizer.eos_token_id,
                 bos_token_id=processor.tokenizer.bos_token_id,
                 eos_token_id=processor.tokenizer.eos_token_id,
-                max_new_tokens=256,
+                max_new_tokens=16,
                 do_sample=True,
                 temperature=0.4,
                 top_p=0.9,
