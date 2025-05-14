@@ -1,5 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from deepseek_vl2.models import DeepseekVLV2Processor, DeepseekVLV2ForCausalLM
 import torch
 import logging
@@ -12,6 +13,15 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(
     title="DeepSeek-VL2 Inference API",
     description="Upload an image and prompt; returns VL2-generated text."
+)
+
+# Add CORS middleware to allow requests from any origin (for development)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For production, specify allowed origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Load model & processor at startup
