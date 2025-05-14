@@ -413,3 +413,21 @@ Sessionx.vim
 tags
 # Persistent undo
 [._]*.un~
+
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Python egg metadata
+*.egg-info
+
+# Model weight files
+*.pt
+
+# Visual grounding output
+vg.jpg
+

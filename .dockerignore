@@ -1,0 +1,15 @@
+# Ignore Python cache and compiled files
+**/__pycache__/
+*.pyc
+
+# Git metadata
+*.git
+
+# Environment files
+.env
+
+# Python egg metadata
+*.egg-info
+
+# Visual grounding or temp outputs
+vg.jpg
