@@ -11,9 +11,10 @@ WORKDIR /app
 # Copy only dependency files first for better caching
 COPY requirements.txt pyproject.toml ./
 
-# Install Python dependencies (this layer will be cached unless requirements change)
+# Install torch/torchvision with CUDA wheels, then the rest of the dependencies
 RUN pip install --upgrade pip && \
-    pip install --extra-index-url https://download.pytorch.org/whl/cu117 -e . && \
+    pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu117 && \
+    pip install -e . && \
     pip install fastapi uvicorn[standard]
 
 # Now copy the rest of your code (this step will only invalidate the cache if your code changes)
