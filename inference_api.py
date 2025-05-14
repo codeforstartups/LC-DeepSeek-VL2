@@ -28,6 +28,15 @@ except Exception as e:
     logging.error(f"Failed to load model or processor: {e}")
     raise RuntimeError(f"Model or processor loading failed: {e}")
 
+def resize_to_multiple(img, multiple=14):
+    width, height = img.size
+    new_width = ((width + multiple - 1) // multiple) * multiple
+    new_height = ((height + multiple - 1) // multiple) * multiple
+    if (new_width, new_height) != (width, height):
+        logging.info(f"Resizing image from ({width}, {height}) to ({new_width}, {new_height}) to match patch size multiple {multiple}.")
+        img = img.resize((new_width, new_height), Image.BICUBIC)
+    return img
+
 @app.post("/infer/")
 async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
     logging.info(f"Received request: file={file.filename if file else None}, content_type={file.content_type if file else None}, prompt={prompt}")
@@ -47,6 +56,7 @@ async def infer(file: UploadFile = File(...), prompt: str = Form(...)):
             logging.info("Attempting to load image with PIL...")
             pil_image = Image.open(BytesIO(content))
             pil_image = pil_image.convert("RGB")
+            pil_image = resize_to_multiple(pil_image, multiple=14)
             images = [pil_image]
             logging.info("Image loaded successfully.")
         except Exception as e:
