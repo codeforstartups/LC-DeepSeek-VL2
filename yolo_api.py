@@ -78,9 +78,12 @@ async def detect_objects(video: UploadFile = File(...)):
             for frame in extract_frames(temp_path):
                 frame_count += 1
                 results = yolo_model(frame)  # runs on CUDA now
-                for cls_id in results.boxes.cls:
-                    label = yolo_model.names[int(cls_id)]
-                    counts[label] += 1
+                # Process each result in the list
+                for result in results:
+                    if result.boxes is not None:  # Check if boxes exist
+                        for cls_id in result.boxes.cls:
+                            label = yolo_model.names[int(cls_id)]
+                            counts[label] += 1
 
             detection_time = time.time() - detection_start
             logger.info(f"Detection completed in {detection_time:.2f} seconds")
