@@ -6,6 +6,7 @@ import tempfile
 import logging
 import requests
 import boto3
+import math
 from pathlib import Path
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Body
@@ -41,22 +42,47 @@ def extract_1fps(video_path: str, out_dir: str):
     cap.release()
     return sorted(os.listdir(out_dir))
 
-def make_panoramas(frame_dir: str, frames: list, N: int, pano_dir: str):
+def make_panoramas(
+    frame_dir: str,
+    frames: list,
+    N: int,
+    pano_dir: str,
+    cols: int = 5
+):
+    """
+    Stitch up to N frames into a grid with 'cols' columns (and as many rows as needed).
+    Returns list of saved panorama file paths.
+    """
     os.makedirs(pano_dir, exist_ok=True)
-    panos = []
-    for i in range(0, len(frames), N):
-        group = frames[i : i + N]
-        imgs = [Image.open(f"{frame_dir}/{f}") for f in group]
-        widths, heights = zip(*(im.size for im in imgs))
-        pano = Image.new("RGB", (sum(widths), max(heights)))
-        x = 0
-        for im in imgs:
-            pano.paste(im, (x, 0))
-            x += im.width
-        out = f"{pano_dir}/pano_{i//N:03d}.jpg"
-        pano.save(out)
-        panos.append(out)
-    return panos
+    pano_paths = []
+
+    for batch_start in range(0, len(frames), N):
+        group = frames[batch_start : batch_start + N]
+        imgs  = [Image.open(os.path.join(frame_dir, f)) for f in group]
+
+        # Determine cell size
+        max_w = max(im.width for im in imgs)
+        max_h = max(im.height for im in imgs)
+
+        # Calculate number of rows needed
+        rows = math.ceil(len(imgs) / cols)
+
+        # Create blank canvas
+        pano = Image.new("RGB", (cols * max_w, rows * max_h))
+
+        # Paste each image into its grid cell
+        for idx, im in enumerate(imgs):
+            row = idx // cols
+            col = idx % cols
+            x = col * max_w
+            y = row * max_h
+            pano.paste(im, (x, y))
+
+        out_path = os.path.join(pano_dir, f"pano_{batch_start//N:03d}.jpg")
+        pano.save(out_path)
+        pano_paths.append(out_path)
+
+    return pano_paths
 
 async def describe_image(path: str, prompt: str):
     for attempt in range(3):
@@ -71,7 +97,7 @@ async def describe_image(path: str, prompt: str):
             return resp.json().get("response", "")
         except TimeoutException:
             if attempt < 2:
-                await asyncio.sleep(2**attempt)
+                await asyncio.sleep(2 ** attempt)
                 continue
             raise
         except HTTPStatusError:
@@ -81,11 +107,12 @@ async def describe_image(path: str, prompt: str):
 async def analyze_video(
     video_url: str = Body(..., embed=True),
     prompt: str = (
-        "You're looking at 10 consecutive seconds stitched side-by-side. "
-        "Tell the story of what unfolds from left to right—who appears, what actions happen, "
+        "You're looking at N consecutive seconds stitched into a grid of 'cols' columns. "
+        "Tell the story of what unfolds, row by row, left to right—who appears, what actions happen, "
         "and any dynamic changes."
     ),
     N: int = 10,
+    cols: int = 5,
 ):
     if S3_BUCKET is None:
         raise HTTPException(500, "AWS_S3_BUCKET environment variable not set")
@@ -107,9 +134,9 @@ async def analyze_video(
             tmp_vid.write(chunk)
         tmp_vid.flush()
 
-        # Extract frames & stitch panoramas
+        # Extract frames & make grid panoramas
         frames = extract_1fps(tmp_vid.name, frame_dir)
-        panos  = make_panoramas(frame_dir, frames, N, pano_dir)
+        panos  = make_panoramas(frame_dir, frames, N, pano_dir, cols)
 
         # Upload each panorama to S3
         s3_urls = []
