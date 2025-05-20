@@ -103,14 +103,19 @@ async def describe_image(path: str, prompt: str):
         except HTTPStatusError:
             raise
 
+DEFAULT_PROMPT = (
+    "You’re looking at N consecutive seconds arranged in a grid of ‘cols’ columns. "
+    "Walk me through each row, left to right, describing:\n"
+    "  • Who or what enters or exits each cell\n"
+    "  • Any actions or interactions you see\n"
+    "  • Changes in the scene’s context or lighting\n"
+    "Keep it concise but chronological."
+)
+
 @app.post("/analyze_video/")
 async def analyze_video(
     video_url: str = Body(..., embed=True),
-    prompt: str = (
-        "You're looking at N consecutive seconds stitched into a grid of 'cols' columns. "
-        "Tell the story of what unfolds, row by row, left to right—who appears, what actions happen, "
-        "and any dynamic changes."
-    ),
+    prompt: str = DEFAULT_PROMPT,
     N: int = 10,
     cols: int = 5,
 ):
