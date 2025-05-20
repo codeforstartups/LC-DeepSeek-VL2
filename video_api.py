@@ -5,6 +5,7 @@ import asyncio
 import tempfile
 import logging
 import requests
+import boto3
 from pathlib import Path
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Body
@@ -14,8 +15,13 @@ app = FastAPI()
 logger = logging.getLogger("analyze_video")
 logging.basicConfig(level=logging.INFO)
 
+# DeepSeek-VL2 API URL
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "http://localhost:8000/infer/")
 client = httpx.AsyncClient(timeout=15.0)
+
+# S3 bucket name (set this env var)
+S3_BUCKET = os.getenv("AWS_S3_BUCKET")
+s3 = boto3.client("s3")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -69,7 +75,6 @@ async def describe_image(path: str, prompt: str):
                 continue
             raise
         except HTTPStatusError:
-            # don’t retry 4xx
             raise
 
 @app.post("/analyze_video/")
@@ -82,6 +87,9 @@ async def analyze_video(
     ),
     N: int = 10,
 ):
+    if S3_BUCKET is None:
+        raise HTTPException(500, "AWS_S3_BUCKET environment variable not set")
+
     logger.info(f"Downloading video from URL: {video_url}")
     ext = Path(video_url).suffix.lower()
     if ext not in {".mp4", ".avi", ".mov"}:
@@ -91,7 +99,7 @@ async def analyze_video(
          tempfile.TemporaryDirectory() as frame_dir, \
          tempfile.TemporaryDirectory() as pano_dir:
 
-        # download
+        # Download the video
         r = requests.get(video_url, stream=True)
         if r.status_code != 200:
             raise HTTPException(400, "Failed to download video")
@@ -99,27 +107,56 @@ async def analyze_video(
             tmp_vid.write(chunk)
         tmp_vid.flush()
 
-        # extract + stitch
+        # Extract frames & stitch panoramas
         frames = extract_1fps(tmp_vid.name, frame_dir)
         panos  = make_panoramas(frame_dir, frames, N, pano_dir)
 
-        # describe one by one
-        descriptions = []
-        for p in panos:
-            name = Path(p).name
-            try:
-                desc = await describe_image(p, prompt)
-                descriptions.append({"pano": name, "description": desc})
-            except TimeoutException:
-                descriptions.append({"pano": name, "error": "DeepSeek request timed out"})
-            except HTTPStatusError as e:
-                descriptions.append({"pano": name, "error": f"DeepSeek HTTP {e.response.status_code}"})
-            except Exception as e:
-                descriptions.append({"pano": name, "error": str(e)})
+        # Upload each panorama to S3
+        s3_urls = []
+        for pano_path in panos:
+            key = f"panoramas/{Path(pano_path).name}"
+            s3.upload_file(pano_path, S3_BUCKET, key, ExtraArgs={"ACL": "public-read"})
+            url = f"https://{S3_BUCKET}.s3.amazonaws.com/{key}"
+            s3_urls.append(url)
 
+        # Describe each panorama one by one
+        descriptions = []
+        for pano_path, s3_url in zip(panos, s3_urls):
+            name = Path(pano_path).name
+            try:
+                desc = await describe_image(pano_path, prompt)
+                descriptions.append({
+                    "pano": name,
+                    "s3_url": s3_url,
+                    "description": desc
+                })
+            except TimeoutException:
+                descriptions.append({
+                    "pano": name,
+                    "s3_url": s3_url,
+                    "error": "DeepSeek request timed out"
+                })
+            except HTTPStatusError as e:
+                descriptions.append({
+                    "pano": name,
+                    "s3_url": s3_url,
+                    "error": f"DeepSeek HTTP {e.response.status_code}"
+                })
+            except Exception as e:
+                descriptions.append({
+                    "pano": name,
+                    "s3_url": s3_url,
+                    "error": str(e)
+                })
+
+    # Cleanup local temp video
     try:
         os.remove(tmp_vid.name)
     except OSError:
         logger.warning(f"Couldn't delete temp file {tmp_vid.name}")
 
-    return {"panoramas_analyzed": len(panos), "descriptions": descriptions}
+    return {
+        "panoramas_analyzed": len(panos),
+        "s3_urls": s3_urls,
+        "descriptions": descriptions
+    }
