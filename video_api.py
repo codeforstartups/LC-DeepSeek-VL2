@@ -115,7 +115,7 @@ async def analyze_video(
         s3_urls = []
         for pano_path in panos:
             key = f"panoramas/{Path(pano_path).name}"
-            s3.upload_file(pano_path, S3_BUCKET, key, ExtraArgs={"ACL": "public-read"})
+            s3.upload_file(pano_path, S3_BUCKET, key)
             url = f"https://{S3_BUCKET}.s3.amazonaws.com/{key}"
             s3_urls.append(url)
 
