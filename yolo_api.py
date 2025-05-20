@@ -3,10 +3,11 @@ import cv2
 import torch
 import logging
 import time
-from collections import Counter
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from ultralytics import YOLO
+import requests
 import tempfile
+from collections import Counter
+from fastapi import FastAPI, HTTPException, Body
+from ultralytics import YOLO
 
 # Configure logging
 logging.basicConfig(
@@ -21,88 +22,91 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# 1) Determine device
+# Device setup
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 logger.info(f"Using device: {device}")
-assert device.startswith("cuda"), "CUDA not detected on this machine"
+if not device.startswith("cuda"):
+    logger.warning("CUDA not detected—running on CPU")
 
-# 2) Load YOLOv8 (no device arg) and then move it
+# Load YOLOv8 model once
 logger.info("Loading YOLOv8 model...")
 yolo_model = YOLO("yolov8n.pt")
 yolo_model.to(device)
 logger.info("YOLOv8 model loaded successfully")
 
+
 def extract_frames(video_path: str):
-    logger.info(f"Opening video file: {video_path}")
+    """Yield each frame from the video at full framerate."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        logger.error(f"Failed to open video file: {video_path}")
+        logger.error(f"Cannot open video: {video_path}")
         raise RuntimeError("Cannot open video file")
-
-    frame_count = 0
+    count = 0
     ret, frame = cap.read()
     while ret:
-        frame_count += 1
-        if frame_count % 100 == 0:
-            logger.info(f"Processed {frame_count} frames")
+        count += 1
+        if count % 100 == 0:
+            logger.info(f"Read {count} frames")
         yield frame
         ret, frame = cap.read()
-
-    logger.info(f"Total frames processed: {frame_count}")
+    logger.info(f"Total frames read: {count}")
     cap.release()
 
-@app.post("/detect_objects/")
-async def detect_objects(video: UploadFile = File(...)):
-    start_time = time.time()
-    logger.info(f"Received video upload: {video.filename}")
 
-    fname = video.filename.lower()
-    if not fname.endswith((".mp4", ".avi", ".mov")):
-        logger.error(f"Unsupported video format: {fname}")
+async def run_detection_on_path(video_path: str):
+    """Run YOLO detection over all frames and aggregate counts."""
+    counts = Counter()
+    frame_count = 0
+    start = time.time()
+    for frame in extract_frames(video_path):
+        frame_count += 1
+        results = yolo_model(frame)
+        for res in results:
+            if res.boxes is not None:
+                for cls_id in res.boxes.cls:
+                    label = yolo_model.names[int(cls_id)]
+                    counts[label] += 1
+    elapsed = time.time() - start
+    return {
+        "device": device,
+        "total_frames": frame_count,
+        "total_detections": sum(counts.values()),
+        "counts": dict(counts),
+        "processing_time": f"{elapsed:.2f}s"
+    }
+
+
+@app.post("/detect_objects/")
+async def detect_objects_url(video_url: str = Body(..., embed=True)):
+    """
+    URL-based endpoint: download the video and run object detection over every frame.
+    Request body:
+      { "video_url": "https://example.com/video.mp4" }
+    """
+    logger.info(f"Received URL for detection: {video_url}")
+
+    # Validate extension
+    ext = os.path.splitext(video_url)[1].lower()
+    if ext not in (".mp4", ".avi", ".mov"):
         raise HTTPException(400, "Unsupported video format")
 
-    # 3) Save to temp
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(fname)[1]) as tmp:
-        temp_path = tmp.name
+    # Download to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        path = tmp.name
+        resp = requests.get(video_url, stream=True)
+        if resp.status_code != 200:
+            logger.error(f"Failed to download video: HTTP {resp.status_code}")
+            raise HTTPException(400, "Failed to download video")
+        for chunk in resp.iter_content(8192):
+            tmp.write(chunk)
+        tmp.flush()
+
+    try:
+        # Run YOLO detection on the downloaded file
+        return await run_detection_on_path(path)
+    finally:
+        # Clean up
         try:
-            logger.info(f"Saving video to temporary file: {temp_path}")
-            tmp.write(await video.read())
-            tmp.flush()
-
-            # 4) Frame-by-frame detection on GPU
-            logger.info("Starting object detection...")
-            counts = Counter()
-            frame_count = 0
-            detection_start = time.time()
-
-            for frame in extract_frames(temp_path):
-                frame_count += 1
-                results = yolo_model(frame)  # runs on CUDA now
-                # Process each result in the list
-                for result in results:
-                    if result.boxes is not None:  # Check if boxes exist
-                        for cls_id in result.boxes.cls:
-                            label = yolo_model.names[int(cls_id)]
-                            counts[label] += 1
-
-            detection_time = time.time() - detection_start
-            logger.info(f"Detection completed in {detection_time:.2f} seconds")
-            logger.info(f"Total frames processed: {frame_count}")
-            logger.info(f"Detection results: {dict(counts)}")
-
-            return {
-                "device": device,
-                "total_detections": sum(counts.values()),
-                "counts": dict(counts),
-                "processing_time": f"{detection_time:.2f} seconds",
-                "total_frames": frame_count
-            }
-        except Exception as e:
-            logger.error(f"Error processing video: {str(e)}", exc_info=True)
-            raise HTTPException(500, f"Error processing video: {str(e)}")
-        finally:
-            logger.info("Cleaning up temporary file")
-            os.remove(temp_path)
-
-    total_time = time.time() - start_time
-    logger.info(f"Total request processing time: {total_time:.2f} seconds")
+            os.remove(path)
+        except OSError:
+            logger.warning(f"Could not delete temp file: {path}")
