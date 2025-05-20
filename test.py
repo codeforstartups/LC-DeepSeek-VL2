@@ -2,7 +2,7 @@ import requests
 import sys
 
 def test_yolo_api(video_path):
-    url = "http://3.19.70.22:8001/detect_objects/"
+    url = "http://3.141.39.20:8001/analyze_video/"
 
     try:
         with open(video_path, "rb") as video_file:

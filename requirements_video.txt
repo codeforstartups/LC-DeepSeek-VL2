@@ -3,3 +3,4 @@ uvicorn
 httpx
 opencv-python
 pillow
+python-multipart
