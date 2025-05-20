@@ -36,20 +36,22 @@ logger.info("YOLOv8 model loaded successfully")
 
 
 def extract_frames(video_path: str):
-    """Yield each frame from the video at full framerate."""
+    """Yield one frame per second from the video."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error(f"Cannot open video: {video_path}")
         raise RuntimeError("Cannot open video file")
-    count = 0
-    ret, frame = cap.read()
-    while ret:
-        count += 1
-        if count % 100 == 0:
-            logger.info(f"Read {count} frames")
-        yield frame
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    duration = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps)
+    for sec in range(duration + 1):
+        cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)  # seek to ms
         ret, frame = cap.read()
-    logger.info(f"Total frames read: {count}")
+        if not ret:
+            break
+        logger.info(f"Extracted frame at {sec}s")
+        yield frame
+
     cap.release()
 
 
