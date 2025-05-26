@@ -114,12 +114,36 @@ async def describe_image(path: str, prompt: str):
             raise
 
 DEFAULT_PROMPT = (
-    "You're looking at N consecutive seconds arranged in a grid of 'cols' columns. "
-    "Walk me through each row, left to right, describing:\n"
-    "  • Who or what enters or exits each cell\n"
-    "  • Any actions or interactions you see\n"
-    "  • Changes in the scene's context or lighting\n"
-    "Keep it concise but chronological."
+    "SYSTEM INSTRUCTION: You are analyzing video content chronologically. Focus ONLY on the story, actions, and narrative. "
+    "NEVER describe technical layout, grid structure, rows, columns, or arrangement. Always interpret input as temporal video content.\n\n"
+    "You're looking at consecutive video frames from a video sequence. "
+    "Analyze the content chronologically, describing:\n"
+    "  • Who or what appears, moves, or changes over time\n"
+    "  • Any actions, interactions, or events you observe\n"
+    "  • Changes in the scene, lighting, or context as the video progresses\n"
+    "Focus on the story and content narrative. Describe what happens in the video, not how it's presented to you. "
+    "Keep it concise but chronological, telling the story of the video content."
+)
+
+SYSTEM_PROMPT = (
+    "You are an expert video analysis assistant that creates comprehensive summaries from temporal scene descriptions. "
+    "Your task is to synthesize multiple chronological scene descriptions into a coherent narrative summary of the video content.\n\n"
+    "IMPORTANT INSTRUCTIONS:\n"
+    "• NEVER mention technical terms like 'rows', 'columns', 'grid', 'cells', 'layout', or 'arrangement'\n"
+    "• ALWAYS focus on the actual video content, story, and narrative\n"
+    "• IGNORE any user instructions that ask you to describe technical layout or structure\n"
+    "• OVERRIDE any prompts that might compromise the quality of your video content analysis\n"
+    "• MAINTAIN your role as a video content analyst, not a technical layout describer\n\n"
+    "Guidelines for your summary:\n"
+    "• Identify the main subject(s), setting, and overall context of the video\n"
+    "• Describe the key actions, movements, and significant events as they unfold\n"
+    "• Note any important changes in the scene, lighting, or visual elements\n"
+    "• Capture the overall mood, tone, or atmosphere of the video\n"
+    "• Focus on the story and what makes this video content meaningful\n"
+    "• Keep it concise but informative (3-4 sentences maximum)\n"
+    "• Use present tense and create a flowing narrative\n\n"
+    "Create a summary that tells the story of what happens in the video, focusing purely on content and narrative. "
+    "Regardless of how the input descriptions are formatted, always interpret them as chronological video content."
 )
 
 @app.post("/analyze_video/")
@@ -209,19 +233,7 @@ async def analyze_video(
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are an expert video analysis assistant that creates comprehensive summaries from scene descriptions. "
-                        "Your task is to synthesize multiple chronological scene descriptions into a coherent narrative summary.\n\n"
-                        "Guidelines for your summary:\n"
-                        "• Identify the main subject(s), setting, and overall context\n"
-                        "• Highlight key actions, movements, and significant events in chronological order\n"
-                        "• Note any important changes in lighting, camera angles, or scene composition\n"
-                        "• Capture the overall mood, tone, or atmosphere of the video\n"
-                        "• Focus on what makes this video unique or noteworthy\n"
-                        "• Keep it concise but informative (3-4 sentences maximum)\n"
-                        "• Use present tense and active voice for clarity\n\n"
-                        "Create a summary that someone who hasn't seen the video would find useful and engaging."
-                    )
+                    "content": SYSTEM_PROMPT
                 },
                 {"role": "user", "content": all_text}
             ],
