@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Body
 from httpx import HTTPStatusError, TimeoutException
+from urllib.parse import urlparse
 
 app = FastAPI()
 logger = logging.getLogger("analyze_video")
@@ -133,9 +134,14 @@ async def analyze_video(
 
     # (1) Download & extract panoramas (unchanged) …
     logger.info(f"Downloading video from URL: {video_url}")
-    ext = Path(video_url).suffix.lower()
+    parsed_url = urlparse(video_url)
+    path_without_query = parsed_url.path
+    ext = Path(path_without_query).suffix.lower() if     path_without_query else ""
+
+    logger.info(f"Detected file extension: '{ext}' from path: {path_without_query}")
+
     if ext not in {".mp4", ".avi", ".mov"}:
-        raise HTTPException(400, "Unsupported video format")
+        raise HTTPException(400, f"Unsupported video format. Detected extension: '{ext}'. Supported formats: .mp4, .avi, .mov")
 
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_vid, \
          tempfile.TemporaryDirectory() as frame_dir, \
