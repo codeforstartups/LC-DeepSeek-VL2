@@ -210,8 +210,17 @@ async def analyze_video(
                 {
                     "role": "system",
                     "content": (
-                        "You are an assistant that reads multiple scene descriptions "
-                        "and produces a concise 2–3 sentence summary."
+                        "You are an expert video analysis assistant that creates comprehensive summaries from scene descriptions. "
+                        "Your task is to synthesize multiple chronological scene descriptions into a coherent narrative summary.\n\n"
+                        "Guidelines for your summary:\n"
+                        "• Identify the main subject(s), setting, and overall context\n"
+                        "• Highlight key actions, movements, and significant events in chronological order\n"
+                        "• Note any important changes in lighting, camera angles, or scene composition\n"
+                        "• Capture the overall mood, tone, or atmosphere of the video\n"
+                        "• Focus on what makes this video unique or noteworthy\n"
+                        "• Keep it concise but informative (3-4 sentences maximum)\n"
+                        "• Use present tense and active voice for clarity\n\n"
+                        "Create a summary that someone who hasn't seen the video would find useful and engaging."
                     )
                 },
                 {"role": "user", "content": all_text}
