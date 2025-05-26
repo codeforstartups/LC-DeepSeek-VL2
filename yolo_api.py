@@ -8,6 +8,8 @@ import tempfile
 from collections import Counter
 from fastapi import FastAPI, HTTPException, Body
 from ultralytics import YOLO
+from urllib.parse import urlparse
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(
@@ -87,10 +89,15 @@ async def detect_objects_url(video_url: str = Body(..., embed=True)):
     """
     logger.info(f"Received URL for detection: {video_url}")
 
-    # Validate extension
-    ext = os.path.splitext(video_url)[1].lower()
-    if ext not in (".mp4", ".avi", ".mov"):
-        raise HTTPException(400, "Unsupported video format")
+    # Validate extension using URL parsing to handle query parameters
+    parsed_url = urlparse(video_url)
+    path_without_query = parsed_url.path
+    ext = Path(path_without_query).suffix.lower() if path_without_query else ""
+
+    logger.info(f"Detected file extension: '{ext}' from path: {path_without_query}")
+
+    if ext not in {".mp4", ".avi", ".mov"}:
+        raise HTTPException(400, f"Unsupported video format. Detected extension: '{ext}'. Supported formats: .mp4, .avi, .mov")
 
     # Download to temp file
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
