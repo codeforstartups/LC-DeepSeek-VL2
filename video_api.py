@@ -26,7 +26,7 @@ logger.info(f"DeepSeek API URL: {DEEPSEEK_API_URL}")
 logger.info(f"Ollama Chat URL: {OLLAMA_CHAT_URL}")
 logger.info(f"S3 Bucket: {os.getenv('AWS_S3_BUCKET', 'Not set')}")
 
-client = httpx.AsyncClient()
+client = httpx.AsyncClient(timeout=None)
 
 # S3 bucket name (unchanged)
 S3_BUCKET = os.getenv("AWS_S3_BUCKET")
