@@ -125,7 +125,7 @@ DEFAULT_PROMPT = (
 async def analyze_video(
     video_url: str = Body(..., embed=True),
     prompt: str = DEFAULT_PROMPT,
-    N: int = 10,
+    N: int = 30,
     cols: int = 5,
 ):
     if S3_BUCKET is None:
