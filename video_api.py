@@ -16,11 +16,14 @@ app = FastAPI()
 logger = logging.getLogger("analyze_video")
 logging.basicConfig(level=logging.INFO)
 
-# DeepSeek-VL2 API URL
+# DeepSeek-VL2 API URL (unchanged)
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "http://localhost:8000/infer/")
+# Ollama chat API for summarization
+OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://localhost:11434/api/chat")
+
 client = httpx.AsyncClient(timeout=15.0)
 
-# S3 bucket name (set this env var)
+# S3 bucket name (unchanged)
 S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 s3 = boto3.client("s3")
 
@@ -85,6 +88,7 @@ def make_panoramas(
     return pano_paths
 
 async def describe_image(path: str, prompt: str):
+    # unchanged
     for attempt in range(3):
         try:
             with open(path, "rb") as f:
@@ -122,6 +126,7 @@ async def analyze_video(
     if S3_BUCKET is None:
         raise HTTPException(500, "AWS_S3_BUCKET environment variable not set")
 
+    # (1) Download & extract panoramas (unchanged) …
     logger.info(f"Downloading video from URL: {video_url}")
     ext = Path(video_url).suffix.lower()
     if ext not in {".mp4", ".avi", ".mov"}:
@@ -131,7 +136,7 @@ async def analyze_video(
          tempfile.TemporaryDirectory() as frame_dir, \
          tempfile.TemporaryDirectory() as pano_dir:
 
-        # Download the video
+        # download video …
         r = requests.get(video_url, stream=True)
         if r.status_code != 200:
             raise HTTPException(400, "Failed to download video")
@@ -139,19 +144,18 @@ async def analyze_video(
             tmp_vid.write(chunk)
         tmp_vid.flush()
 
-        # Extract frames & make grid panoramas
+        # frame extraction & panorama creation …
         frames = extract_1fps(tmp_vid.name, frame_dir)
         panos  = make_panoramas(frame_dir, frames, N, pano_dir, cols)
 
-        # Upload each panorama to S3
+        # upload panoramas to S3 …
         s3_urls = []
         for pano_path in panos:
             key = f"panoramas/{Path(pano_path).name}"
             s3.upload_file(pano_path, S3_BUCKET, key)
-            url = f"https://{S3_BUCKET}.s3.amazonaws.com/{key}"
-            s3_urls.append(url)
+            s3_urls.append(f"https://{S3_BUCKET}.s3.amazonaws.com/{key}")
 
-        # Describe each panorama one by one
+        # describe each panorama …
         descriptions = []
         for pano_path, s3_url in zip(panos, s3_urls):
             name = Path(pano_path).name
@@ -181,14 +185,40 @@ async def analyze_video(
                     "error": str(e)
                 })
 
-    # Cleanup local temp video
+    # (2) Summarize all descriptions via DeepSeek-R1
+    all_text = "\n\n".join(item.get("description", "") for item in descriptions)
+    chat_payload = {
+        "model": "deepseek-r1:1.5b",
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are an assistant that reads multiple scene descriptions "
+                    "and produces a concise 2–3 sentence summary."
+                )
+            },
+            {"role": "user", "content": all_text}
+        ],
+        "stream": False
+    }
+    try:
+        summary_resp = await client.post(OLLAMA_CHAT_URL, json=chat_payload)
+        summary_resp.raise_for_status()
+        summary = summary_resp.json()["message"]["content"]
+    except Exception as e:
+        logger.error(f"Summary generation failed: {e}")
+        summary = f"Summary generation failed: {e}"
+
+    # cleanup
     try:
         os.remove(tmp_vid.name)
     except OSError:
         logger.warning(f"Couldn't delete temp file {tmp_vid.name}")
 
+    # (3) Return everything, including the new summary
     return {
         "panoramas_analyzed": len(panos),
         "s3_urls": s3_urls,
-        "descriptions": descriptions
+        "descriptions": descriptions,
+        "summary": summary
     }
