@@ -21,6 +21,11 @@ DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "http://localhost:8000/infer/")
 # Ollama chat API for summarization
 OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://localhost:11434/api/chat")
 
+# Log configuration on startup
+logger.info(f"DeepSeek API URL: {DEEPSEEK_API_URL}")
+logger.info(f"Ollama Chat URL: {OLLAMA_CHAT_URL}")
+logger.info(f"S3 Bucket: {os.getenv('AWS_S3_BUCKET', 'Not set')}")
+
 client = httpx.AsyncClient(timeout=15.0)
 
 # S3 bucket name (unchanged)
@@ -108,11 +113,11 @@ async def describe_image(path: str, prompt: str):
             raise
 
 DEFAULT_PROMPT = (
-    "You’re looking at N consecutive seconds arranged in a grid of ‘cols’ columns. "
+    "You're looking at N consecutive seconds arranged in a grid of 'cols' columns. "
     "Walk me through each row, left to right, describing:\n"
     "  • Who or what enters or exits each cell\n"
     "  • Any actions or interactions you see\n"
-    "  • Changes in the scene’s context or lighting\n"
+    "  • Changes in the scene's context or lighting\n"
     "Keep it concise but chronological."
 )
 
@@ -186,28 +191,58 @@ async def analyze_video(
                 })
 
     # (2) Summarize all descriptions via DeepSeek-R1
-    all_text = "\n\n".join(item.get("description", "") for item in descriptions)
-    chat_payload = {
-        "model": "deepseek-r1:1.5b",
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are an assistant that reads multiple scene descriptions "
-                    "and produces a concise 2–3 sentence summary."
-                )
-            },
-            {"role": "user", "content": all_text}
-        ],
-        "stream": False
-    }
-    try:
-        summary_resp = await client.post(OLLAMA_CHAT_URL, json=chat_payload)
-        summary_resp.raise_for_status()
-        summary = summary_resp.json()["message"]["content"]
-    except Exception as e:
-        logger.error(f"Summary generation failed: {e}")
-        summary = f"Summary generation failed: {e}"
+    all_text = "\n\n".join(item.get("description", "") for item in descriptions if item.get("description"))
+
+    # Check if we have any valid descriptions to summarize
+    if not all_text.strip():
+        logger.warning("No valid descriptions found for summarization")
+        summary = "No valid descriptions were generated from the video analysis."
+    else:
+        chat_payload = {
+            "model": "deepseek-r1:1.5b",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an assistant that reads multiple scene descriptions "
+                        "and produces a concise 2–3 sentence summary."
+                    )
+                },
+                {"role": "user", "content": all_text}
+            ],
+            "stream": False
+        }
+
+        try:
+            logger.info(f"Sending summarization request to {OLLAMA_CHAT_URL}")
+            logger.debug(f"Payload: {chat_payload}")
+
+            summary_resp = await client.post(OLLAMA_CHAT_URL, json=chat_payload)
+            summary_resp.raise_for_status()
+
+            response_data = summary_resp.json()
+            logger.debug(f"Ollama response: {response_data}")
+
+            summary = response_data.get("message", {}).get("content", "")
+            if not summary:
+                logger.warning("Empty summary received from Ollama")
+                summary = "Summary generation completed but returned empty content."
+
+        except httpx.ConnectError as e:
+            logger.error(f"Connection failed to Ollama at {OLLAMA_CHAT_URL}: {e}")
+            summary = f"Summary generation failed: Unable to connect to Ollama service at {OLLAMA_CHAT_URL}"
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout while connecting to Ollama: {e}")
+            summary = "Summary generation failed: Request to Ollama service timed out"
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error from Ollama: {e.response.status_code} - {e.response.text}")
+            summary = f"Summary generation failed: Ollama service returned HTTP {e.response.status_code}"
+        except KeyError as e:
+            logger.error(f"Unexpected response format from Ollama: {e}")
+            summary = "Summary generation failed: Unexpected response format from Ollama service"
+        except Exception as e:
+            logger.error(f"Unexpected error during summary generation: {type(e).__name__}: {e}")
+            summary = f"Summary generation failed: {type(e).__name__}: {str(e)}"
 
     # cleanup
     try:
@@ -222,3 +257,39 @@ async def analyze_video(
         "descriptions": descriptions,
         "summary": summary
     }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify service connectivity"""
+    health_status = {
+        "status": "healthy",
+        "services": {}
+    }
+
+    # Check Ollama connectivity
+    try:
+        ollama_resp = await client.get(f"{OLLAMA_CHAT_URL.replace('/api/chat', '')}/api/tags", timeout=5.0)
+        if ollama_resp.status_code == 200:
+            health_status["services"]["ollama"] = "connected"
+        else:
+            health_status["services"]["ollama"] = f"error: HTTP {ollama_resp.status_code}"
+    except Exception as e:
+        health_status["services"]["ollama"] = f"error: {str(e)}"
+
+    # Check DeepSeek connectivity
+    try:
+        deepseek_resp = await client.get(DEEPSEEK_API_URL.replace('/infer/', '/health'), timeout=5.0)
+        if deepseek_resp.status_code == 200:
+            health_status["services"]["deepseek"] = "connected"
+        else:
+            health_status["services"]["deepseek"] = f"error: HTTP {deepseek_resp.status_code}"
+    except Exception as e:
+        health_status["services"]["deepseek"] = f"error: {str(e)}"
+
+    # Check S3 configuration
+    if S3_BUCKET:
+        health_status["services"]["s3"] = f"configured: {S3_BUCKET}"
+    else:
+        health_status["services"]["s3"] = "error: AWS_S3_BUCKET not set"
+
+    return health_status
