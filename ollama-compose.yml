@@ -9,13 +9,19 @@ services:
     volumes:
       - ollama_data:/root/.ollama
       - ./start-ollama.sh:/start-ollama.sh
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+    device_requests:
+      - driver: nvidia
+        count: all
+        capabilities: [gpu]
+    entrypoint: ["/start-ollama.sh"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
-    entrypoint: ["/start-ollama.sh"]
 
 volumes:
   ollama_data:
