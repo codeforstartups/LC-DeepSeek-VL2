@@ -22,8 +22,3 @@ services:
 volumes:
   ollama_data:
     name: ollama_data
-
-networks:
-  app-network:
-    name: app-network
-    external: true 
