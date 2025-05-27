@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-service
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./start-ollama.sh:/start-ollama.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    entrypoint: ["/start-ollama.sh"]
+    networks:
+      - app-network
+
+volumes:
+  ollama_data:
+    name: ollama_data
+
+networks:
+  app-network:
+    name: app-network
+    external: true 
