@@ -11,10 +11,7 @@ services:
       - ./start-ollama.sh:/start-ollama.sh
     environment:
       OLLAMA_HOST: "0.0.0.0:11434"
-    device_requests:
-      - driver: nvidia
-        count: all
-        capabilities: [gpu]
+    runtime: nvidia
     entrypoint: ["/start-ollama.sh"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434"]
