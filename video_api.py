@@ -18,7 +18,7 @@ logger = logging.getLogger("analyze_video")
 logging.basicConfig(level=logging.INFO)
 
 # DeepSeek-VL2 API URL (unchanged)
-DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "http://localhost:8000/infer/")
+DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "http://localhost:8000/analyze/")
 # Ollama chat API for summarization
 OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://localhost:11434/api/chat")
 
@@ -100,7 +100,7 @@ async def describe_image(path: str, prompt: str):
             with open(path, "rb") as f:
                 resp = await client.post(
                     DEEPSEEK_API_URL,
-                    files={"file": (Path(path).name, f, "image/jpeg")},
+                    files={"file": (Path(path).name, f, "image/jpeg") , "analysis_type": "ocr"},
                     data={"prompt": prompt},
                 )
             resp.raise_for_status()
