@@ -11,8 +11,8 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
-    title="DeepSeek-VL2 Medical Imaging API",
-    description="Upload MRI/CT scan images for AI-assisted cancer detection analysis using DeepSeek VL2."
+    title="DeepSeek-VL2 Unified Analysis API",
+    description="Upload images for AI-assisted analysis using DeepSeek VL2. Supports both medical imaging analysis and OCR text extraction."
 )
 
 # Add CORS middleware to allow requests from any origin (for development)
@@ -47,69 +47,93 @@ def resize_to_multiple(img, multiple=14, fixed_size=512):
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for medical imaging API"""
+    """Health check endpoint for unified analysis API"""
     return {
         "status": "healthy",
-        "service": "Medical Imaging Cancer Detection API",
-        "model": "deepseek-ai/deepseek-vl2-tiny"
+        "service": "Unified Analysis API (Medical + OCR)",
+        "model": "deepseek-ai/deepseek-vl2-tiny",
+        "supported_types": ["medical", "ocr"]
     }
 
-@app.post("/analyze_scan/")
-async def analyze_medical_scan(file: UploadFile = File(...), prompt: str = Form(...)):
+@app.post("/analyze/")
+async def analyze_image(
+    file: UploadFile = File(...),
+    prompt: str = Form(...),
+    analysis_type: str = Form(default="medical")
+):
     """
-    Analyze MRI/CT scan images for potential cancer detection
+    Unified image analysis endpoint supporting multiple analysis types
 
     Args:
-        file: Medical scan image file (DICOM, PNG, JPEG)
+        file: Image file (medical scans, documents, photos, etc.)
         prompt: Analysis request or specific focus area
+        analysis_type: Type of analysis ("medical" or "ocr")
     """
-    logging.info(f"Received medical scan analysis request: file={file.filename if file else None}, prompt={prompt}")
+    logging.info(f"Received analysis request: file={file.filename if file else None}, type={analysis_type}, prompt={prompt}")
+
+    # Validate analysis type
+    if analysis_type not in ["medical", "ocr"]:
+        raise HTTPException(status_code=400, detail="analysis_type must be 'medical' or 'ocr'")
 
     try:
         if not file:
-            logging.error("No medical scan file uploaded.")
-            raise HTTPException(status_code=400, detail="No medical scan file uploaded.")
+            logging.error("No image file uploaded.")
+            raise HTTPException(status_code=400, detail="No image file uploaded.")
         if not prompt:
             logging.error("Prompt is required.")
             raise HTTPException(status_code=400, detail="Prompt is required.")
 
         content = await file.read()
-        logging.info(f"Medical scan file content length: {len(content)} bytes")
+        logging.info(f"Image file content length: {len(content)} bytes")
 
         if not content:
-            logging.error("Uploaded medical scan file is empty.")
-            raise HTTPException(status_code=400, detail="Uploaded medical scan file is empty.")
+            logging.error("Uploaded image file is empty.")
+            raise HTTPException(status_code=400, detail="Uploaded image file is empty.")
 
         try:
-            logging.info("Attempting to load medical scan image with PIL...")
+            logging.info(f"Attempting to load image for {analysis_type} analysis...")
             pil_image = Image.open(BytesIO(content))
             pil_image = pil_image.convert("RGB")
             pil_image = resize_to_multiple(pil_image, multiple=14, fixed_size=512)
             images = [pil_image]
-            logging.info("Medical scan image loaded successfully.")
+            logging.info("Image loaded successfully.")
         except Exception as e:
-            logging.error(f"Invalid medical scan image file: {e}")
-            raise HTTPException(status_code=400, detail=f"Invalid medical scan image file: {e}")
+            logging.error(f"Invalid image file: {e}")
+            raise HTTPException(status_code=400, detail=f"Invalid image file: {e}")
 
-        # Prepare medical imaging analysis inputs
+        # Prepare analysis inputs with type-specific system prompts
         try:
-            logging.info("Preparing medical imaging analysis inputs...")
+            logging.info(f"Preparing {analysis_type} analysis inputs...")
 
-            system_prompt = (
-                "You are an expert medical imaging AI assistant specializing in radiological analysis. "
-                "Your task is to analyze medical scans (MRI, CT, X-Ray) and provide detailed observations about potential abnormalities. "
-                "Focus on identifying suspicious areas, masses, density changes, and other radiological findings that may indicate cancer or other pathologies. "
-                "Always emphasize that your analysis is for educational purposes and cannot replace professional medical diagnosis. "
-                "Provide clear, structured observations with appropriate medical terminology while remaining accessible. "
-                "Include confidence levels and recommendations for professional medical consultation."
-            )
+            # Define system prompts for different analysis types
+            if analysis_type == "medical":
+                system_prompt = (
+                    "You are an expert medical imaging AI assistant specializing in radiological analysis. "
+                    "Your task is to analyze medical scans (MRI, CT, X-Ray) and provide detailed observations about potential abnormalities. "
+                    "Focus on identifying suspicious areas, masses, density changes, and other radiological findings that may indicate cancer or other pathologies. "
+                    "Always emphasize that your analysis is for educational purposes and cannot replace professional medical diagnosis. "
+                    "Provide clear, structured observations with appropriate medical terminology while remaining accessible. "
+                    "Include confidence levels and recommendations for professional medical consultation."
+                )
+                max_tokens = 256
+                temperature = 0.3
+                top_p = 0.8
+            elif analysis_type == "ocr":
+                system_prompt = (
+                    "You are an expert OCR assistant. When the user provides an image, your task is to extract all visible text from the image as accurately as possible. "
+                    "Return only the recognized text, formatted clearly and preserving the original structure (such as lines or paragraphs) if possible. "
+                    "Do not add any extra commentary or explanation—just output the extracted text."
+                )
+                max_tokens = 256
+                temperature = 0.4
+                top_p = 0.9
 
             inputs = processor(
                 conversations=[
                     {
                         "role": "<|User|>",
                         "content": "<image>\n" + prompt,
-                        "images": ["medical_scan.png"]
+                        "images": [f"{analysis_type}_image.png"]
                     },
                     {"role": "<|Assistant|>", "content": ""}
                 ],
@@ -117,14 +141,14 @@ async def analyze_medical_scan(file: UploadFile = File(...), prompt: str = Form(
                 force_batchify=True,
                 system_prompt=system_prompt
             ).to(model.device, dtype=torch.float16)
-            logging.info("Medical imaging analysis inputs prepared.")
+            logging.info(f"{analysis_type.capitalize()} analysis inputs prepared.")
         except Exception as e:
-            logging.error(f"Medical imaging input processing failed: {repr(e)}")
+            logging.error(f"{analysis_type.capitalize()} input processing failed: {repr(e)}")
             raise HTTPException(status_code=500, detail=f"Input processing failed: {e}")
 
-        # Generate medical analysis
+        # Generate analysis with type-specific parameters
         try:
-            logging.info("Generating medical imaging analysis...")
+            logging.info(f"Generating {analysis_type} analysis...")
             embeds = model.prepare_inputs_embeds(**inputs)
             outputs = model.generate(
                 inputs_embeds=embeds,
@@ -136,10 +160,10 @@ async def analyze_medical_scan(file: UploadFile = File(...), prompt: str = Form(
                 pad_token_id=processor.tokenizer.eos_token_id,
                 bos_token_id=processor.tokenizer.bos_token_id,
                 eos_token_id=processor.tokenizer.eos_token_id,
-                max_new_tokens=512,  # Longer output for detailed medical analysis
+                max_new_tokens=max_tokens,
                 do_sample=True,
-                temperature=0.3,  # Lower temperature for more consistent medical analysis
-                top_p=0.8,
+                temperature=temperature,
+                top_p=top_p,
                 repetition_penalty=1.1,
                 use_cache=True
             )
@@ -147,20 +171,31 @@ async def analyze_medical_scan(file: UploadFile = File(...), prompt: str = Form(
                 outputs[0][len(inputs.input_ids[0]):].cpu().tolist(),
                 skip_special_tokens=True
             )
-            logging.info("Medical imaging analysis complete.")
+            logging.info(f"{analysis_type.capitalize()} analysis complete.")
         except Exception as e:
-            logging.error(f"Medical imaging analysis failed: {repr(e)}")
-            raise HTTPException(status_code=500, detail=f"Medical analysis failed: {e}")
+            logging.error(f"{analysis_type.capitalize()} analysis failed: {repr(e)}")
+            raise HTTPException(status_code=500, detail=f"{analysis_type} analysis failed: {e}")
 
-        logging.info(f"Returning medical analysis response for {file.filename}")
-        return {"response": analysis_text}
+        # Return response with analysis type info
+        response = {
+            "response": analysis_text,
+            "analysis_type": analysis_type,
+            "filename": file.filename
+        }
+
+        # Add disclaimer for medical analysis
+        if analysis_type == "medical":
+            response["disclaimer"] = "This AI analysis is for educational and research purposes only. Always consult with qualified medical professionals for proper diagnosis and treatment."
+
+        logging.info(f"Returning {analysis_type} analysis response for {file.filename}")
+        return response
 
     except HTTPException as he:
-        logging.error(f"HTTPException in medical analysis: {he.detail}")
+        logging.error(f"HTTPException in {analysis_type} analysis: {he.detail}")
         raise he
     except Exception as e:
-        logging.error(f"Unexpected error in medical analysis: {repr(e)}")
+        logging.error(f"Unexpected error in {analysis_type} analysis: {repr(e)}")
         return JSONResponse(
             status_code=500,
-            content={"detail": f"Unexpected server error in medical analysis: {e}"}
+            content={"detail": f"Unexpected server error in {analysis_type} analysis: {e}"}
         )
