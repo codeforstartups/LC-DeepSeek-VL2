@@ -100,8 +100,8 @@ async def describe_image(path: str, prompt: str):
             with open(path, "rb") as f:
                 resp = await client.post(
                     DEEPSEEK_API_URL,
-                    files={"file": (Path(path).name, f, "image/jpeg") , "analysis_type": "ocr"},
-                    data={"prompt": prompt},
+                    files={"file": (Path(path).name, f, "image/jpeg")},
+                    data={"prompt": prompt, "analysis_type": "ocr"},
                 )
             resp.raise_for_status()
             return resp.json().get("response", "")
