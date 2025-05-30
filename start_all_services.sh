@@ -1,26 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ensure we’re in the project root
+# 1️⃣ Go to this script’s own dir (LC-DeepSeek-VL2)
 cd "$(dirname "$0")"
 
-# name of our screen session
-SCREEN_NAME="deepseekvl2_yolo"
-
-# full command to run inside screen
-CMD="source venv/bin/activate && \
+# 2️⃣ Map each screen → startup command
+declare -A SERVICES=(
+  [deepseekvl2-video]="\
+source venv/bin/activate && \
+pip install -r requirements_video.txt && \
+export AWS_S3_BUCKET=vision-app-prod-uploads && \
+uvicorn video_api:app --host 0.0.0.0 --port 8001\
+"
+  [deepseekvl2_yolo]="\
+source venv/bin/activate && \
 pip install -r requirements_yolo.txt && \
-uvicorn yolo_api:app --host 0.0.0.0 --port 8002"
+uvicorn yolo_api:app --host 0.0.0.0 --port 8002\
+"
+  [deepseekvl2_medical]="\
+source venv/bin/activate && \
+uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000\
+"
+  [deepseekvl2_models]="\
+chmod +x start-ollama.sh && \
+docker compose -f ollama-compose.yml up\
+"
+  [vision-backend]="\
+cd .. && cd langchain-frontend-vision/backend && \
+pip install -r requirements.txt && \
+uvicorn main:app --reload --host 0.0.0.0 --port 3000\
+"
+  [vision-frontend]="\
+cd .. && cd langchain-frontend-vision && \
+npm install && \
+npm run build && \
+npm run preview\
+"
+)
 
-# kill any existing session
-if screen -list | grep -q "\.${SCREEN_NAME}[[:space:]]"; then
-  echo "Stopping existing session: $SCREEN_NAME"
-  screen -S "$SCREEN_NAME" -X quit
-  sleep 1
-fi
+# 3️⃣ Helper to restart one service
+restart_service() {
+  local name=$1 cmd=$2
 
-# start new detached screen
-echo "Starting session: $SCREEN_NAME"
-screen -dmS "$SCREEN_NAME" bash -lc "$CMD"
+  # Stop existing session
+  if screen -list | grep -q "\.${name}[[:space:]]"; then
+    echo "⏹ Stopping existing session: $name"
+    screen -S "$name" -X quit
+    sleep 1
+  fi
 
-echo "✅ YOLO service is now running in screen '$SCREEN_NAME'."
+  # Start fresh detached screen
+  echo "▶️ Starting session: $name"
+  screen -dmS "$name" bash -lc "$cmd"
+}
+
+# 4️⃣ Loop through all
+for name in "${!SERVICES[@]}"; do
+  restart_service "$name" "${SERVICES[$name]}"
+done
+
+echo "✅ All services launched in their own screen sessions."
