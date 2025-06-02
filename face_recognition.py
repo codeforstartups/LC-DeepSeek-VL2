@@ -206,16 +206,94 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
                 if not df_list or len(df_list) == 0:
                     continue
 
-                # Process the first detected face (most prominent)
-                df = df_list[0]
                 processed_frames += 1
 
                 # DEBUG: Log DataFrame structure for troubleshooting
                 if idx == 0:  # Log only for first frame to avoid spam
-                    logger.info(f"DEBUG: DataFrame columns: {list(df.columns)}")
-                    logger.info(f"DEBUG: DataFrame shape: {df.shape}")
-                    if not df.empty:
-                        logger.info(f"DEBUG: Sample row: {df.iloc[0].to_dict()}")
+                    logger.info(f"DEBUG: Number of faces detected: {len(df_list)}")
+                    logger.info(f"DEBUG: DataFrame columns: {list(df_list[0].columns)}")
+                    logger.info(f"DEBUG: DataFrame shape: {df_list[0].shape}")
+                    if not df_list[0].empty:
+                        logger.info(f"DEBUG: Sample row: {df_list[0].iloc[0].to_dict()}")
+
+                # 🔥 IMPROVED: Process ALL detected faces in this frame
+                for face_idx, df in enumerate(df_list):
+                    logger.debug(f"Processing face {face_idx + 1}/{len(df_list)} in frame {idx}")
+
+                    # If no matches found in database for this face
+                    if df.empty:
+                        logger.debug(f"No matches found for face {face_idx + 1} in frame {idx}")
+                        continue
+
+                    # Get the best match (lowest distance) for this face
+                    top_match = df.iloc[0]
+                    top_identity = top_match["identity"]  # Full path to matched reference image
+
+                    # ROBUST: Detect the correct distance column name
+                    distance_columns = [col for col in df.columns if 'cosine' in col.lower() or 'distance' in col.lower()]
+
+                    if distance_columns:
+                        distance_col = distance_columns[0]  # Use first matching column
+                        top_distance = float(top_match[distance_col])
+                        logger.debug(f"Using distance column: {distance_col}")
+                    else:
+                        logger.warning(f"No distance column found. Available columns: {list(df.columns)}")
+                        # Fallback: try common column names
+                        possible_cols = ['cosine', 'ArcFace_cosine', 'distance', 'similarity']
+                        distance_col = None
+                        for col in possible_cols:
+                            if col in df.columns:
+                                distance_col = col
+                                break
+
+                        if distance_col:
+                            top_distance = float(top_match[distance_col])
+                            logger.info(f"Using fallback distance column: {distance_col}")
+                        else:
+                            logger.error(f"Cannot find distance column. Columns: {list(df.columns)}")
+                            continue
+
+                    # Extract relative filename from full path
+                    rel_key = os.path.basename(top_identity)
+
+                    # ROBUST MATCHING: Multiple confidence levels
+                    timestamp_ms = idx * 1000
+
+                    if top_distance <= 0.30:
+                        # High confidence match
+                        matches.append(MatchResult(
+                            photo_key=rel_key,
+                            frame_index=idx,
+                            timestamp_ms=timestamp_ms
+                        ))
+                        logger.info(f"🎯 HIGH CONFIDENCE MATCH → Frame {idx} Face {face_idx + 1} ({timestamp_ms}ms) "
+                                  f"matches {rel_key} (distance={top_distance:.3f})")
+
+                    elif top_distance <= 0.40:
+                        # Medium confidence match (your current threshold)
+                        matches.append(MatchResult(
+                            photo_key=rel_key,
+                            frame_index=idx,
+                            timestamp_ms=timestamp_ms
+                        ))
+                        logger.info(f"✅ MEDIUM CONFIDENCE MATCH → Frame {idx} Face {face_idx + 1} ({timestamp_ms}ms) "
+                                  f"matches {rel_key} (distance={top_distance:.3f})")
+
+                    elif top_distance <= 0.50:
+                        # Log potential matches for analysis (not included in results)
+                        logger.debug(f"🤔 POTENTIAL MATCH → Frame {idx} Face {face_idx + 1} matches {rel_key} "
+                                   f"(distance={top_distance:.3f}) - Below threshold")
+
+                    # Also log the top 3 matches for debugging
+                    if len(df) > 1:
+                        logger.debug(f"Frame {idx} Face {face_idx + 1} top 3 matches:")
+                        for i in range(min(3, len(df))):
+                            match_identity = os.path.basename(df.iloc[i]["identity"])
+                            try:
+                                match_distance = float(df.iloc[i][distance_col])
+                                logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
+                            except Exception as e:
+                                logger.debug(f"  {i+1}. {match_identity}: [distance error: {e}]")
 
             except ValueError as e:
                 if "Face could not be detected" in str(e):
@@ -228,81 +306,6 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
             except Exception as e:
                 logger.warning(f"Unexpected error on frame {idx}: {e}")
                 continue
-
-            # If no matches found in database
-            if df.empty:
-                logger.debug(f"No matches found for frame {idx}")
-                continue
-
-            # Get the best match (lowest distance)
-            top_match = df.iloc[0]
-            top_identity = top_match["identity"]  # Full path to matched reference image
-
-            # ROBUST: Detect the correct distance column name
-            distance_columns = [col for col in df.columns if 'cosine' in col.lower() or 'distance' in col.lower()]
-
-            if distance_columns:
-                distance_col = distance_columns[0]  # Use first matching column
-                top_distance = float(top_match[distance_col])
-                logger.debug(f"Using distance column: {distance_col}")
-            else:
-                logger.warning(f"No distance column found. Available columns: {list(df.columns)}")
-                # Fallback: try common column names
-                possible_cols = ['cosine', 'ArcFace_cosine', 'distance', 'similarity']
-                distance_col = None
-                for col in possible_cols:
-                    if col in df.columns:
-                        distance_col = col
-                        break
-
-                if distance_col:
-                    top_distance = float(top_match[distance_col])
-                    logger.info(f"Using fallback distance column: {distance_col}")
-                else:
-                    logger.error(f"Cannot find distance column. Columns: {list(df.columns)}")
-                    continue
-
-            # Extract relative filename from full path
-            rel_key = os.path.basename(top_identity)
-
-            # ROBUST MATCHING: Multiple confidence levels
-            timestamp_ms = idx * 1000
-
-            if top_distance <= 0.30:
-                # High confidence match
-                matches.append(MatchResult(
-                    photo_key=rel_key,
-                    frame_index=idx,
-                    timestamp_ms=timestamp_ms
-                ))
-                logger.info(f"🎯 HIGH CONFIDENCE MATCH → Frame {idx} ({timestamp_ms}ms) "
-                          f"matches {rel_key} (distance={top_distance:.3f})")
-
-            elif top_distance <= 0.40:
-                # Medium confidence match (your current threshold)
-                matches.append(MatchResult(
-                    photo_key=rel_key,
-                    frame_index=idx,
-                    timestamp_ms=timestamp_ms
-                ))
-                logger.info(f"✅ MEDIUM CONFIDENCE MATCH → Frame {idx} ({timestamp_ms}ms) "
-                          f"matches {rel_key} (distance={top_distance:.3f})")
-
-            elif top_distance <= 0.50:
-                # Log potential matches for analysis (not included in results)
-                logger.debug(f"🤔 POTENTIAL MATCH → Frame {idx} matches {rel_key} "
-                           f"(distance={top_distance:.3f}) - Below threshold")
-
-            # Also log the top 3 matches for debugging
-            if len(df) > 1:
-                logger.debug(f"Frame {idx} top 3 matches:")
-                for i in range(min(3, len(df))):
-                    match_identity = os.path.basename(df.iloc[i]["identity"])
-                    try:
-                        match_distance = float(df.iloc[i][distance_col])
-                        logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
-                    except Exception as e:
-                        logger.debug(f"  {i+1}. {match_identity}: [distance error: {e}]")
 
         # Final statistics
         total_processed = len(frame_paths)
