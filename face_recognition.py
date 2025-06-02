@@ -210,6 +210,13 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
                 df = df_list[0]
                 processed_frames += 1
 
+                # DEBUG: Log DataFrame structure for troubleshooting
+                if idx == 0:  # Log only for first frame to avoid spam
+                    logger.info(f"DEBUG: DataFrame columns: {list(df.columns)}")
+                    logger.info(f"DEBUG: DataFrame shape: {df.shape}")
+                    if not df.empty:
+                        logger.info(f"DEBUG: Sample row: {df.iloc[0].to_dict()}")
+
             except ValueError as e:
                 if "Face could not be detected" in str(e):
                     logger.debug(f"No face detected in frame {idx} ({frame_path})")
@@ -230,7 +237,30 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
             # Get the best match (lowest distance)
             top_match = df.iloc[0]
             top_identity = top_match["identity"]  # Full path to matched reference image
-            top_distance = float(top_match["cosine"])
+
+            # ROBUST: Detect the correct distance column name
+            distance_columns = [col for col in df.columns if 'cosine' in col.lower() or 'distance' in col.lower()]
+
+            if distance_columns:
+                distance_col = distance_columns[0]  # Use first matching column
+                top_distance = float(top_match[distance_col])
+                logger.debug(f"Using distance column: {distance_col}")
+            else:
+                logger.warning(f"No distance column found. Available columns: {list(df.columns)}")
+                # Fallback: try common column names
+                possible_cols = ['cosine', 'ArcFace_cosine', 'distance', 'similarity']
+                distance_col = None
+                for col in possible_cols:
+                    if col in df.columns:
+                        distance_col = col
+                        break
+
+                if distance_col:
+                    top_distance = float(top_match[distance_col])
+                    logger.info(f"Using fallback distance column: {distance_col}")
+                else:
+                    logger.error(f"Cannot find distance column. Columns: {list(df.columns)}")
+                    continue
 
             # Extract relative filename from full path
             rel_key = os.path.basename(top_identity)
@@ -268,8 +298,11 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
                 logger.debug(f"Frame {idx} top 3 matches:")
                 for i in range(min(3, len(df))):
                     match_identity = os.path.basename(df.iloc[i]["identity"])
-                    match_distance = float(df.iloc[i]["cosine"])
-                    logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
+                    try:
+                        match_distance = float(df.iloc[i][distance_col])
+                        logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
+                    except Exception as e:
+                        logger.debug(f"  {i+1}. {match_identity}: [distance error: {e}]")
 
         # Final statistics
         total_processed = len(frame_paths)
