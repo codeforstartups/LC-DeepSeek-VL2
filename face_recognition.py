@@ -178,104 +178,136 @@ def compute_reference_embeddings(bucket: str, keys: List[str], local_dir: str) -
     return embeddings
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Helper: Process video frames and find matches
+# 7. Helper: Extract frames at 1 FPS from video
 # ──────────────────────────────────────────────────────────────────────────────
 
-def match_faces_in_video(local_video_path: str, ref_embeds: Dict[str, np.ndarray]) -> List[MatchResult]:
+def extract_frames_1fps(video_path: str, temp_dir: str) -> List[str]:
     """
-    Open the local video file, iterate frame by frame, compute each frame's embedding,
-    and compare to each reference embedding. Whenever cosine distance ≤ 0.4,
-    record a MatchResult (photo_key, frame_index, timestamp_ms).
-
-    OPTIMIZED: Process at 1 FPS instead of full frame rate for efficiency.
+    Extract frames at 1 FPS from video, similar to video_api.py approach.
+    Returns list of extracted frame paths.
     """
-    logger.info(f"Starting face matching in video: {local_video_path}")
-    logger.info(f"Will compare against {len(ref_embeds)} reference embeddings")
+    frames_dir = os.path.join(temp_dir, "frames_1fps")
+    os.makedirs(frames_dir, exist_ok=True)
 
-    matches: List[MatchResult] = []
-    cap = cv2.VideoCapture(local_video_path)
+    cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        logger.error("Cannot open video file")
-        raise RuntimeError("Cannot open video file.")
+        raise RuntimeError("Cannot open video file for frame extraction.")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    frame_duration_ms = 1000.0 / fps
+    duration = total_frames / fps
 
-    # Calculate frame skip to achieve ~1 FPS processing
-    frame_skip = max(1, int(fps))  # Process every Nth frame to get ~1 FPS
+    logger.info(f"Extracting frames at 1 FPS from video - Duration: {duration:.2f}s, Expected frames: {int(duration)}")
 
-    logger.info(f"Video info - FPS: {fps}, Total frames: {total_frames}, Duration: {total_frames/fps:.2f}s")
-    logger.info(f"OPTIMIZATION: Processing every {frame_skip} frames (~1 FPS) instead of all {fps} FPS")
-    logger.info(f"Expected processing frames: {total_frames // frame_skip}")
-
-    frame_index = 0
-    processed_frames = 0
-    last_log_time = time.time()
+    frame_paths = []
+    idx = 0
 
     while True:
+        # Set position to extract frame at each second
+        cap.set(cv2.CAP_PROP_POS_MSEC, 1000 * idx)
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Only process every Nth frame to achieve ~1 FPS
-        if frame_index % frame_skip == 0:
-            processed_frames += 1
+        frame_path = os.path.join(frames_dir, f"frame_{idx:03d}.jpg")
+        cv2.imwrite(frame_path, frame)
+        frame_paths.append(frame_path)
 
-            # Log progress every 10 seconds
+        if idx % 10 == 0:  # Log every 10 seconds
+            logger.info(f"Extracted frame at {idx}s")
+
+        idx += 1
+
+    cap.release()
+    logger.info(f"Frame extraction complete - Extracted {len(frame_paths)} frames at 1 FPS")
+    return frame_paths
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 8. Helper: Process video frames and find matches
+# ──────────────────────────────────────────────────────────────────────────────
+
+def match_faces_in_video(local_video_path: str, ref_embeds: Dict[str, np.ndarray]) -> List[MatchResult]:
+    """
+    Extract frames at 1 FPS first, then process each extracted frame for face matching.
+    Much more efficient than processing every frame in the video.
+    """
+    logger.info(f"Starting face matching in video: {local_video_path}")
+    logger.info(f"Will compare against {len(ref_embeds)} reference embeddings")
+
+    # Create temporary directory for extracted frames
+    temp_frames_dir = tempfile.mkdtemp()
+
+    try:
+        # Step 1: Extract frames at 1 FPS
+        frame_paths = extract_frames_1fps(local_video_path, temp_frames_dir)
+
+        if not frame_paths:
+            logger.warning("No frames extracted from video")
+            return []
+
+        # Step 2: Process each extracted frame
+        matches: List[MatchResult] = []
+        last_log_time = time.time()
+
+        for frame_idx, frame_path in enumerate(frame_paths):
+            # Log progress every 10 frames
             current_time = time.time()
             if current_time - last_log_time >= 10:
-                progress = (frame_index / total_frames * 100) if total_frames > 0 else 0
-                logger.info(f"Processing frame {frame_index}/{total_frames} ({progress:.1f}%) - Processed: {processed_frames}")
+                progress = (frame_idx / len(frame_paths) * 100)
+                logger.info(f"Processing frame {frame_idx+1}/{len(frame_paths)} ({progress:.1f}%)")
                 last_log_time = current_time
 
-            # Compute timestamp for this frame (in milliseconds)
-            pos_msec = int(cap.get(cv2.CAP_PROP_POS_MSEC))
-            if pos_msec <= 0:
-                pos_msec = int(frame_index * frame_duration_ms)
+            # Calculate timestamp (frame_idx represents seconds since we extracted at 1 FPS)
+            timestamp_ms = frame_idx * 1000
 
-            # Compute embedding for the first detected face (if any)
+            # Load and process frame
             try:
+                frame = cv2.imread(frame_path)
+                if frame is None:
+                    logger.warning(f"Could not load frame: {frame_path}")
+                    continue
+
+                # Compute embedding for the first detected face (if any)
                 results = DeepFace.represent(
                     img_path=frame,
                     model_name="ArcFace",
                     enforce_detection=False,
                     detector_backend="opencv"
                 )
+
+                if not results or len(results) == 0:
+                    logger.debug(f"No face detected in frame {frame_idx} ({frame_path})")
+                    continue
+
+                frame_emb = np.array(results[0]["embedding"])
+                logger.debug(f"Frame {frame_idx}: Found face, computing matches...")
+
+                # Compare to each reference embedding
+                for key, ref_vec in ref_embeds.items():
+                    # Cosine similarity: (A·B)/(||A||·||B||); distance = 1 - similarity
+                    sim = np.dot(frame_emb, ref_vec) / (np.linalg.norm(frame_emb) * np.linalg.norm(ref_vec) + 1e-10)
+                    distance = 1.0 - sim
+                    if distance <= 0.4:  # threshold for ArcFace + cosine
+                        match = MatchResult(photo_key=key, frame_index=frame_idx, timestamp_ms=timestamp_ms)
+                        matches.append(match)
+                        logger.info(f"MATCH FOUND! Frame {frame_idx} matches {key} (distance: {distance:.3f}, timestamp: {timestamp_ms}ms)")
+                        # Stop checking other references once matched
+                        break
+
             except Exception as e:
-                logger.debug(f"Failed to process frame {frame_index}: {e}")
-                frame_index += 1
+                logger.warning(f"Failed to process frame {frame_idx} ({frame_path}): {e}")
                 continue
 
-            if not results or len(results) == 0:
-                logger.debug(f"No face detected in frame {frame_index}")
-                frame_index += 1
-                continue
+        logger.info(f"Video processing complete. Processed {len(frame_paths)} frames at 1 FPS")
+        logger.info(f"Total matches found: {len(matches)}")
+        return matches
 
-            frame_emb = np.array(results[0]["embedding"])
-            logger.debug(f"Frame {frame_index}: Found face, computing matches...")
-
-            # Compare to each reference embedding
-            for key, ref_vec in ref_embeds.items():
-                # Cosine similarity: (A·B)/(||A||·||B||); distance = 1 - similarity
-                sim = np.dot(frame_emb, ref_vec) / (np.linalg.norm(frame_emb) * np.linalg.norm(ref_vec) + 1e-10)
-                distance = 1.0 - sim
-                if distance <= 0.4:  # threshold for ArcFace + cosine
-                    match = MatchResult(photo_key=key, frame_index=frame_index, timestamp_ms=pos_msec)
-                    matches.append(match)
-                    logger.info(f"MATCH FOUND! Frame {frame_index} matches {key} (distance: {distance:.3f}, timestamp: {pos_msec}ms)")
-                    # Stop checking other references once matched
-                    break
-
-        frame_index += 1
-
-    cap.release()
-    logger.info(f"Video processing complete. Processed {processed_frames} frames out of {total_frames} total frames")
-    logger.info(f"Total matches found: {len(matches)}")
-    return matches
+    finally:
+        # Clean up extracted frames
+        shutil.rmtree(temp_frames_dir, ignore_errors=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 8. FastAPI endpoint
+# 9. FastAPI endpoint
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.post("/match_faces", response_model=MatchResponse)
