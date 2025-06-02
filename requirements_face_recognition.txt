@@ -6,3 +6,4 @@ deepface
 numpy
 requests
 pydantic
+tf-keras
