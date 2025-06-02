@@ -2,15 +2,17 @@ import os
 import tempfile
 import shutil
 import time
+import uuid
 import boto3
 import cv2
 import requests
 import logging
+import numpy as np
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from deepface import DeepFace
-from typing import List
+from typing import List, Optional
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configure logging
@@ -39,31 +41,219 @@ if gpus:
 app = FastAPI()
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. Pydantic models for request and response
+# 2. ENHANCED Pydantic models with confidence parameters
 # ──────────────────────────────────────────────────────────────────────────────
+class FaceQuality(BaseModel):
+    """Face quality assessment metrics"""
+    face_confidence: float     # Detector confidence (0-1)
+    face_size: int            # Face area in pixels
+    is_blurry: bool           # Whether face appears blurry
+    face_angle: str           # Face orientation (frontal, profile, etc.)
+    brightness_score: float   # Face brightness (0-1)
+
+class FaceAttributes(BaseModel):
+    """Optional facial attribute analysis"""
+    age: int                  # Estimated age
+    gender: str               # Male/Female
+    emotion: str              # Dominant emotion
+    race: str                 # Dominant ethnicity
+    age_confidence: float     # Age prediction confidence
+    gender_confidence: float  # Gender prediction confidence
+    emotion_confidence: float # Emotion prediction confidence
+    race_confidence: float    # Race prediction confidence
+
 class MatchRequest(BaseModel):
     video_url: str       # Public HTTPS video URL
     photos_bucket: str   # S3 bucket containing reference images
     photos_prefix: str   # Prefix (folder) under which reference images reside
 
+    # 🔥 NEW: Configurable confidence parameters
+    high_confidence_threshold: float = 0.30    # High confidence matches
+    medium_confidence_threshold: float = 0.40  # Medium confidence matches
+    low_confidence_threshold: float = 0.50     # Low confidence matches (logged only)
+    include_face_attributes: bool = False       # Age, gender, emotion analysis
+    include_anti_spoofing: bool = False        # Detect real vs fake faces
+    include_face_quality: bool = True          # Face quality metrics
+    min_face_size: int = 30                    # Minimum face size in pixels
+    max_faces_per_frame: int = 10              # Limit faces processed per frame
+
 class MatchResult(BaseModel):
-    photo_key: str       # S3 key of matched reference image
-    frame_index: int     # Which second/frame (0-based) matched
-    timestamp_ms: int    # Millisecond timestamp for that frame
+    photo_key: str           # S3 key of matched reference image
+    frame_index: int         # Which second/frame (0-based) matched
+    timestamp_ms: int        # Millisecond timestamp for that frame
+    face_index: int          # Which face in the frame (0-based)
+
+    # 🔥 ENHANCED: Detailed confidence metrics
+    distance: float          # Raw distance score
+    confidence_level: str    # "HIGH", "MEDIUM", "LOW"
+    confidence_score: float  # Normalized confidence (0-1)
+    similarity_percentage: float  # Human-readable similarity %
+
+    # 🔥 NEW: Face quality and attributes
+    face_quality: FaceQuality
+    face_attributes: Optional[FaceAttributes] = None  # Optional
+    is_real_face: Optional[bool] = None              # Anti-spoofing result
+
+    # 🔥 NEW: Additional match metadata
+    all_matches_count: int   # Total potential matches found for this face
+    rank: int               # Rank of this match (1=best, 2=second best, etc.)
 
 class MatchResponse(BaseModel):
     matches: List[MatchResult]
+    # 🔥 NEW: Processing statistics
+    total_frames_processed: int
+    total_faces_detected: int
+    processing_time_seconds: float
+    high_confidence_matches: int
+    medium_confidence_matches: int
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Helper: Download video from a URL to a local temp file
+# 3. Helper functions for enhanced analysis
 # ──────────────────────────────────────────────────────────────────────────────
-def download_video(video_url: str) -> str:
+def analyze_face_quality(face_region, face_confidence: float = 1.0) -> FaceQuality:
     """
-    Download the given video URL into a temporary local file and return its path.
+    Analyze face quality metrics including size, blur, brightness, etc.
     """
-    logger.info(f"Downloading video from: {video_url}")
-    temp_dir = tempfile.mkdtemp()
-    local_video_path = os.path.join(temp_dir, "input_video.mp4")
+    try:
+        # Calculate face size
+        height, width = face_region.shape[:2]
+        face_size = height * width
+
+        # Detect blur using Laplacian variance
+        gray = cv2.cvtColor(face_region, cv2.COLOR_BGR2GRAY) if len(face_region.shape) == 3 else face_region
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        is_blurry = laplacian_var < 100  # Threshold for blur detection
+
+        # Calculate brightness
+        brightness = np.mean(gray) / 255.0
+
+        # Determine face angle (simplified)
+        face_angle = "frontal"  # Could be enhanced with landmark detection
+        if width < height * 0.7:
+            face_angle = "profile"
+
+        return FaceQuality(
+            face_confidence=face_confidence,
+            face_size=face_size,
+            is_blurry=is_blurry,
+            face_angle=face_angle,
+            brightness_score=brightness
+        )
+    except Exception as e:
+        logger.warning(f"Face quality analysis failed: {e}")
+        return FaceQuality(
+            face_confidence=face_confidence,
+            face_size=0,
+            is_blurry=False,
+            face_angle="unknown",
+            brightness_score=0.5
+        )
+
+def analyze_face_attributes(face_path: str) -> FaceAttributes:
+    """
+    Analyze facial attributes: age, gender, emotion, race
+    """
+    try:
+        # Use DeepFace to analyze facial attributes
+        analysis = DeepFace.analyze(
+            img_path=face_path,
+            actions=['age', 'gender', 'emotion', 'race'],
+            enforce_detection=False,
+            silent=True
+        )
+
+        # Handle both single face and multiple faces
+        if isinstance(analysis, list):
+            analysis = analysis[0]  # Take first face
+
+        return FaceAttributes(
+            age=int(analysis.get('age', 0)),
+            gender="Female" if analysis.get('gender', {}).get('Woman', 0) > analysis.get('gender', {}).get('Man', 0) else "Male",
+            emotion=max(analysis.get('emotion', {}), key=analysis.get('emotion', {}).get) if analysis.get('emotion') else "unknown",
+            race=max(analysis.get('race', {}), key=analysis.get('race', {}).get) if analysis.get('race') else "unknown",
+            age_confidence=1.0,  # DeepFace doesn't provide confidence for age
+            gender_confidence=max(analysis.get('gender', {}).values()) if analysis.get('gender') else 0.0,
+            emotion_confidence=max(analysis.get('emotion', {}).values()) if analysis.get('emotion') else 0.0,
+            race_confidence=max(analysis.get('race', {}).values()) if analysis.get('race') else 0.0
+        )
+    except Exception as e:
+        logger.warning(f"Face attribute analysis failed: {e}")
+        return FaceAttributes(
+            age=0,
+            gender="unknown",
+            emotion="unknown",
+            race="unknown",
+            age_confidence=0.0,
+            gender_confidence=0.0,
+            emotion_confidence=0.0,
+            race_confidence=0.0
+        )
+
+def check_face_anti_spoofing(face_path: str) -> bool:
+    """
+    Check if face is real or fake using anti-spoofing
+    """
+    try:
+        face_objs = DeepFace.extract_faces(
+            img_path=face_path,
+            anti_spoofing=True,
+            enforce_detection=False
+        )
+
+        if face_objs and len(face_objs) > 0:
+            return face_objs[0].get("is_real", True)
+        return True
+    except Exception as e:
+        logger.warning(f"Anti-spoofing check failed: {e}")
+        return True  # Default to True if check fails
+
+def calculate_confidence_metrics(distance: float, high_thresh: float, medium_thresh: float, low_thresh: float):
+    """
+    Calculate comprehensive confidence metrics from distance
+    """
+    # Determine confidence level
+    if distance <= high_thresh:
+        confidence_level = "HIGH"
+        confidence_score = 1.0 - (distance / high_thresh) * 0.3  # 0.7-1.0 range
+    elif distance <= medium_thresh:
+        confidence_level = "MEDIUM"
+        confidence_score = 0.7 - ((distance - high_thresh) / (medium_thresh - high_thresh)) * 0.3  # 0.4-0.7 range
+    elif distance <= low_thresh:
+        confidence_level = "LOW"
+        confidence_score = 0.4 - ((distance - medium_thresh) / (low_thresh - medium_thresh)) * 0.4  # 0.0-0.4 range
+    else:
+        confidence_level = "VERY_LOW"
+        confidence_score = 0.0
+
+    # Calculate similarity percentage (inverse of distance)
+    similarity_percentage = max(0, (1 - distance) * 100)
+
+    return confidence_level, confidence_score, similarity_percentage
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Helper: Create UUID-based temporary directory
+# ──────────────────────────────────────────────────────────────────────────────
+def create_request_temp_dir() -> str:
+    """
+    Create a unique temporary directory for this request using UUID.
+    Returns the path to the temp directory.
+    """
+    request_id = str(uuid.uuid4())
+    temp_base = tempfile.gettempdir()
+    request_temp_dir = os.path.join(temp_base, f"face_recognition_{request_id}")
+    os.makedirs(request_temp_dir, exist_ok=True)
+    logger.info(f"🆔 Created request temp directory: {request_temp_dir}")
+    return request_temp_dir
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Helper: Download video from a URL to request-specific temp folder
+# ──────────────────────────────────────────────────────────────────────────────
+def download_video(video_url: str, request_temp_dir: str) -> str:
+    """
+    Download the given video URL into the request-specific temp directory.
+    """
+    logger.info(f"📥 Downloading video from: {video_url}")
+    local_video_path = os.path.join(request_temp_dir, "input_video.mp4")
 
     try:
         with requests.get(video_url, stream=True) as response:
@@ -73,14 +263,13 @@ def download_video(video_url: str) -> str:
                     if chunk:
                         f.write(chunk)
     except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
         raise RuntimeError(f"Video download failed: {e}")
 
-    logger.info(f"Video saved to: {local_video_path}")
+    logger.info(f"✅ Video saved to: {local_video_path}")
     return local_video_path
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. Helper: List all object keys under a given S3 prefix
+# 6. Helper: List all object keys under a given S3 prefix
 # ──────────────────────────────────────────────────────────────────────────────
 def list_s3_keys(bucket_name: str, prefix: str) -> List[str]:
     """
@@ -100,7 +289,7 @@ def list_s3_keys(bucket_name: str, prefix: str) -> List[str]:
     return keys
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Helper: Download a single S3 object to a local path
+# 7. Helper: Download a single S3 object to request-specific folder
 # ──────────────────────────────────────────────────────────────────────────────
 def download_s3_object(bucket: str, key: str, local_path: str):
     """
@@ -110,7 +299,7 @@ def download_s3_object(bucket: str, key: str, local_path: str):
     boto3.client("s3").download_file(Bucket=bucket, Key=key, Filename=local_path)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 6. Helper: Extract frames at 1 FPS from video
+# 8. Helper: Extract frames at 1 FPS from video
 # ──────────────────────────────────────────────────────────────────────────────
 def extract_frames_1fps(video_path: str, out_folder: str) -> List[str]:
     """
@@ -126,7 +315,7 @@ def extract_frames_1fps(video_path: str, out_folder: str) -> List[str]:
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration_s = total_frames / fps
 
-    logger.info(f"Video Duration: {duration_s:.2f}s @ {fps:.2f} FPS; extracting ~{int(duration_s)} frames at 1 FPS")
+    logger.info(f"🎬 Video Duration: {duration_s:.2f}s @ {fps:.2f} FPS; extracting ~{int(duration_s)} frames at 1 FPS")
 
     frame_paths = []
     sec = 0
@@ -145,48 +334,54 @@ def extract_frames_1fps(video_path: str, out_folder: str) -> List[str]:
 
         # Optionally log progress every 10 seconds
         if sec % 10 == 0:
-            logger.info(f"Extracted frame at {sec}s → {frame_filename}")
+            logger.info(f"📸 Extracted frame at {sec}s → {frame_filename}")
 
         sec += 1
 
     cap.release()
-    logger.info(f"Total frames extracted: {len(frame_paths)}")
+    logger.info(f"✅ Total frames extracted: {len(frame_paths)}")
     return frame_paths
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Helper: Use DeepFace.find to match faces on each extracted frame (OPTIMIZED)
+# 9. ENHANCED Helper: Use DeepFace.find with comprehensive confidence analysis
 # ──────────────────────────────────────────────────────────────────────────────
-def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[MatchResult]:
+def match_faces_via_deepface_find(video_path: str, reference_dir: str, request_temp_dir: str, config: MatchRequest) -> tuple[List[MatchResult], dict]:
     """
-    OPTIMIZED APPROACH:
-    1. Extract frames at 1 FPS into a temporary folder
+    ENHANCED APPROACH with comprehensive confidence analysis:
+    1. Extract frames at 1 FPS into request-specific temp folder
     2. For each frame, call DeepFace.find with optimized parameters
-    3. Use RetinaFace detector + face alignment for better accuracy
-    4. Multiple distance thresholds for robust matching
+    3. Analyze face quality, attributes, and anti-spoofing
+    4. Calculate detailed confidence metrics
     5. Enhanced error handling and logging
     """
-    # Create a temp directory to hold extracted frames
-    temp_frame_folder = tempfile.mkdtemp()
+    # Create frames folder within request temp directory
+    frames_folder = os.path.join(request_temp_dir, "frames")
     matches: List[MatchResult] = []
+    stats = {
+        'total_faces_detected': 0,
+        'processed_frames': 0,
+        'detection_failures': 0
+    }
 
     try:
-        frame_paths = extract_frames_1fps(video_path, temp_frame_folder)
+        frame_paths = extract_frames_1fps(video_path, frames_folder)
         if not frame_paths:
-            logger.warning("No frames extracted; skipping matching.")
-            return []
+            logger.warning("⚠️  No frames extracted; skipping matching.")
+            return [], stats
 
-        logger.info(f"Starting face matching on {len(frame_paths)} frames against reference database")
+        logger.info(f"🔍 Starting ENHANCED face matching on {len(frame_paths)} frames")
+        logger.info(f"📊 Confidence thresholds: HIGH≤{config.high_confidence_threshold}, MEDIUM≤{config.medium_confidence_threshold}, LOW≤{config.low_confidence_threshold}")
+        logger.info(f"🎛️  Features: Attributes={config.include_face_attributes}, Anti-spoofing={config.include_anti_spoofing}, Quality={config.include_face_quality}")
+
         last_log = time.time()
-        processed_frames = 0
-        detection_failures = 0
 
         for idx, frame_path in enumerate(frame_paths):
             # Log progress every 10 frames or every 10 seconds
             current_time = time.time()
             if current_time - last_log >= 10:
                 progress = (idx + 1) / len(frame_paths) * 100
-                logger.info(f"Processing frame {idx+1}/{len(frame_paths)} ({progress:.1f}%) - "
-                          f"Processed: {processed_frames}, Failures: {detection_failures}")
+                logger.info(f"⏳ Processing frame {idx+1}/{len(frame_paths)} ({progress:.1f}%) - "
+                          f"Processed: {stats['processed_frames']}, Faces: {stats['total_faces_detected']}, Failures: {stats['detection_failures']}")
                 last_log = current_time
 
             try:
@@ -196,172 +391,213 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
                     db_path=reference_dir,
                     model_name="ArcFace",
                     distance_metric="cosine",
-                    detector_backend="retinaface",  # 🔥 Upgraded from opencv
-                    align=True,                     # 🔥 Enable face alignment
-                    enforce_detection=False,        # Handle detection failures gracefully
-                    silent=True                     # Reduce DeepFace logging noise
+                    detector_backend="retinaface",
+                    align=True,
+                    enforce_detection=False,
+                    silent=True
                 )
 
                 # DeepFace.find returns a list of DataFrames (one per detected face)
                 if not df_list or len(df_list) == 0:
                     continue
 
-                processed_frames += 1
+                stats['processed_frames'] += 1
+                frame_faces_count = len(df_list)
+                stats['total_faces_detected'] += frame_faces_count
+
+                # Limit number of faces processed per frame
+                max_faces = min(frame_faces_count, config.max_faces_per_frame)
+                if frame_faces_count > config.max_faces_per_frame:
+                    logger.info(f"⚠️  Frame {idx}: Processing {max_faces}/{frame_faces_count} faces (limited by max_faces_per_frame)")
 
                 # DEBUG: Log DataFrame structure for troubleshooting
                 if idx == 0:  # Log only for first frame to avoid spam
-                    logger.info(f"DEBUG: Number of faces detected: {len(df_list)}")
-                    logger.info(f"DEBUG: DataFrame columns: {list(df_list[0].columns)}")
-                    logger.info(f"DEBUG: DataFrame shape: {df_list[0].shape}")
-                    if not df_list[0].empty:
-                        logger.info(f"DEBUG: Sample row: {df_list[0].iloc[0].to_dict()}")
+                    logger.info(f"🐛 DEBUG: Number of faces detected: {frame_faces_count}")
+                    if df_list[0] is not None and not df_list[0].empty:
+                        logger.info(f"🐛 DEBUG: DataFrame columns: {list(df_list[0].columns)}")
+                        logger.info(f"🐛 DEBUG: DataFrame shape: {df_list[0].shape}")
 
-                # 🔥 IMPROVED: Process ALL detected faces in this frame
-                for face_idx, df in enumerate(df_list):
-                    logger.debug(f"Processing face {face_idx + 1}/{len(df_list)} in frame {idx}")
+                # 🔥 ENHANCED: Process faces with comprehensive analysis
+                for face_idx in range(max_faces):
+                    df = df_list[face_idx]
+                    logger.debug(f"👤 Processing face {face_idx + 1}/{max_faces} in frame {idx}")
 
                     # If no matches found in database for this face
                     if df.empty:
-                        logger.debug(f"No matches found for face {face_idx + 1} in frame {idx}")
+                        logger.debug(f"❌ No matches found for face {face_idx + 1} in frame {idx}")
                         continue
 
-                    # Get the best match (lowest distance) for this face
-                    top_match = df.iloc[0]
-                    top_identity = top_match["identity"]  # Full path to matched reference image
+                    # Extract face region for quality analysis
+                    face_region = None
+                    try:
+                        faces = DeepFace.extract_faces(
+                            img_path=frame_path,
+                            detector_backend="retinaface",
+                            enforce_detection=False
+                        )
+                        if faces and len(faces) > face_idx:
+                            face_region = (faces[face_idx]['face'] * 255).astype('uint8')
+                    except Exception as e:
+                        logger.debug(f"Face extraction failed for quality analysis: {e}")
 
-                    # ROBUST: Detect the correct distance column name
+                    # Get all matches for this face (sorted by distance)
                     distance_columns = [col for col in df.columns if 'cosine' in col.lower() or 'distance' in col.lower()]
-
                     if distance_columns:
-                        distance_col = distance_columns[0]  # Use first matching column
-                        top_distance = float(top_match[distance_col])
-                        logger.debug(f"Using distance column: {distance_col}")
+                        distance_col = distance_columns[0]
+                        all_matches = df.sort_values(by=distance_col)
                     else:
-                        logger.warning(f"No distance column found. Available columns: {list(df.columns)}")
-                        # Fallback: try common column names
                         possible_cols = ['cosine', 'ArcFace_cosine', 'distance', 'similarity']
                         distance_col = None
                         for col in possible_cols:
                             if col in df.columns:
                                 distance_col = col
                                 break
-
-                        if distance_col:
-                            top_distance = float(top_match[distance_col])
-                            logger.info(f"Using fallback distance column: {distance_col}")
-                        else:
-                            logger.error(f"Cannot find distance column. Columns: {list(df.columns)}")
+                        if not distance_col:
+                            logger.error(f"❌ Cannot find distance column. Columns: {list(df.columns)}")
                             continue
+                        all_matches = df.sort_values(by=distance_col)
 
-                    # Extract relative filename from full path
-                    rel_key = os.path.basename(top_identity)
+                    # Process top matches up to low confidence threshold
+                    for rank, (match_idx, match_row) in enumerate(all_matches.iterrows(), 1):
+                        distance = float(match_row[distance_col])
 
-                    # ROBUST MATCHING: Multiple confidence levels
-                    timestamp_ms = idx * 1000
+                        # Skip matches beyond low confidence threshold
+                        if distance > config.low_confidence_threshold:
+                            break
 
-                    if top_distance <= 0.30:
-                        # High confidence match
-                        matches.append(MatchResult(
-                            photo_key=rel_key,
-                            frame_index=idx,
-                            timestamp_ms=timestamp_ms
-                        ))
-                        logger.info(f"🎯 HIGH CONFIDENCE MATCH → Frame {idx} Face {face_idx + 1} ({timestamp_ms}ms) "
-                                  f"matches {rel_key} (distance={top_distance:.3f})")
+                        top_identity = match_row["identity"]
+                        rel_key = os.path.basename(top_identity)
 
-                    elif top_distance <= 0.40:
-                        # Medium confidence match (your current threshold)
-                        matches.append(MatchResult(
-                            photo_key=rel_key,
-                            frame_index=idx,
-                            timestamp_ms=timestamp_ms
-                        ))
-                        logger.info(f"✅ MEDIUM CONFIDENCE MATCH → Frame {idx} Face {face_idx + 1} ({timestamp_ms}ms) "
-                                  f"matches {rel_key} (distance={top_distance:.3f})")
+                        # Calculate comprehensive confidence metrics
+                        confidence_level, confidence_score, similarity_percentage = calculate_confidence_metrics(
+                            distance, config.high_confidence_threshold,
+                            config.medium_confidence_threshold, config.low_confidence_threshold
+                        )
 
-                    elif top_distance <= 0.50:
-                        # Log potential matches for analysis (not included in results)
-                        logger.debug(f"🤔 POTENTIAL MATCH → Frame {idx} Face {face_idx + 1} matches {rel_key} "
-                                   f"(distance={top_distance:.3f}) - Below threshold")
+                        # Only add to results if above medium confidence
+                        if distance <= config.medium_confidence_threshold:
+                            # 🔥 ENHANCED: Face quality analysis
+                            face_quality = FaceQuality(
+                                face_confidence=1.0,
+                                face_size=0,
+                                is_blurry=False,
+                                face_angle="unknown",
+                                brightness_score=0.5
+                            )
 
-                    # Also log the top 3 matches for debugging
-                    if len(df) > 1:
-                        logger.debug(f"Frame {idx} Face {face_idx + 1} top 3 matches:")
-                        for i in range(min(3, len(df))):
-                            match_identity = os.path.basename(df.iloc[i]["identity"])
-                            try:
-                                match_distance = float(df.iloc[i][distance_col])
-                                logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
-                            except Exception as e:
-                                logger.debug(f"  {i+1}. {match_identity}: [distance error: {e}]")
+                            if config.include_face_quality and face_region is not None:
+                                face_quality = analyze_face_quality(face_region)
+
+                                # Skip low quality faces if configured
+                                if face_quality.face_size < config.min_face_size:
+                                    logger.debug(f"⚠️  Skipping small face: {face_quality.face_size} < {config.min_face_size}")
+                                    continue
+
+                            # 🔥 ENHANCED: Facial attributes analysis
+                            face_attributes = None
+                            if config.include_face_attributes:
+                                face_attributes = analyze_face_attributes(frame_path)
+
+                            # 🔥 ENHANCED: Anti-spoofing check
+                            is_real_face = None
+                            if config.include_anti_spoofing:
+                                is_real_face = check_face_anti_spoofing(frame_path)
+                                if not is_real_face:
+                                    logger.warning(f"🚫 Fake face detected in frame {idx}, face {face_idx + 1}")
+
+                            # Create enhanced match result
+                            match_result = MatchResult(
+                                photo_key=rel_key,
+                                frame_index=idx,
+                                timestamp_ms=idx * 1000,
+                                face_index=face_idx,
+                                distance=distance,
+                                confidence_level=confidence_level,
+                                confidence_score=confidence_score,
+                                similarity_percentage=similarity_percentage,
+                                face_quality=face_quality,
+                                face_attributes=face_attributes,
+                                is_real_face=is_real_face,
+                                all_matches_count=len(all_matches),
+                                rank=rank
+                            )
+
+                            matches.append(match_result)
+
+                            # Enhanced logging with confidence details
+                            emoji = "🎯" if confidence_level == "HIGH" else "✅"
+                            logger.info(f"{emoji} {confidence_level} MATCH → Frame {idx} Face {face_idx + 1} "
+                                      f"matches {rel_key} (distance={distance:.3f}, "
+                                      f"similarity={similarity_percentage:.1f}%, rank={rank})")
+
+                        # Log potential matches for analysis
+                        elif distance <= config.low_confidence_threshold:
+                            logger.debug(f"🤔 LOW CONFIDENCE → Frame {idx} Face {face_idx + 1} matches {rel_key} "
+                                       f"(distance={distance:.3f}, similarity={similarity_percentage:.1f}%)")
 
             except ValueError as e:
                 if "Face could not be detected" in str(e):
-                    logger.debug(f"No face detected in frame {idx} ({frame_path})")
-                    detection_failures += 1
+                    logger.debug(f"😐 No face detected in frame {idx}")
+                    stats['detection_failures'] += 1
                     continue
                 else:
-                    logger.warning(f"DeepFace.find failed on frame {idx}: {e}")
+                    logger.warning(f"⚠️  DeepFace.find failed on frame {idx}: {e}")
                     continue
             except Exception as e:
-                logger.warning(f"Unexpected error on frame {idx}: {e}")
+                logger.warning(f"💥 Unexpected error on frame {idx}: {e}")
                 continue
 
-        # Final statistics
-        total_processed = len(frame_paths)
-        success_rate = (processed_frames / total_processed * 100) if total_processed > 0 else 0
-
-        logger.info(f"MATCHING COMPLETE:")
-        logger.info(f"  📊 Total frames: {total_processed}")
-        logger.info(f"  ✅ Faces detected: {processed_frames} ({success_rate:.1f}%)")
-        logger.info(f"  ❌ Detection failures: {detection_failures}")
-        logger.info(f"  🎯 Matches found: {len(matches)}")
-
-        return matches
+        return matches, stats
 
     except Exception as e:
-        logger.error(f"Critical error in face matching: {e}")
+        logger.error(f"💥 Critical error in enhanced face matching: {e}")
         raise
-    finally:
-        # Clean up extracted frames folder
-        shutil.rmtree(temp_frame_folder, ignore_errors=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 8. Enhanced FastAPI endpoint with better error handling
+# 10. ENHANCED FastAPI endpoint with comprehensive confidence analysis
 # ──────────────────────────────────────────────────────────────────────────────
 @app.post("/match_faces", response_model=MatchResponse)
 def match_faces(request: MatchRequest):
     """
-    ROBUST VIDEO FACE MATCHING ENDPOINT:
-    1. Download video from URL with progress tracking
-    2. List and validate S3 reference images
-    3. Download reference images with error handling
-    4. Perform optimized 1-FPS face matching using RetinaFace + alignment
-    5. Return detailed match results with confidence levels
+    ENHANCED VIDEO FACE MATCHING ENDPOINT WITH COMPREHENSIVE CONFIDENCE ANALYSIS:
+    1. Create UUID-based temp directory for this request
+    2. Download video and reference images to isolated folders
+    3. Perform optimized 1-FPS face matching with detailed confidence metrics
+    4. Analyze face quality, attributes, and anti-spoofing (optional)
+    5. Return comprehensive match results with confidence levels
+    6. Guaranteed cleanup of all temp files
     """
     start_time = time.time()
-    logger.info("═" * 80)
-    logger.info("🎬 NEW VIDEO FACE MATCHING REQUEST")
+    request_temp_dir = None
+
+    # Generate unique request ID for logging
+    request_id = str(uuid.uuid4())[:8]
+
+    logger.info("═" * 90)
+    logger.info(f"🎬 NEW ENHANCED VIDEO FACE MATCHING REQUEST [ID: {request_id}]")
     logger.info(f"📹 Video URL     : {request.video_url}")
     logger.info(f"🗂️  Photos bucket : {request.photos_bucket}")
     logger.info(f"📁 Photos prefix : {request.photos_prefix}")
-    logger.info("═" * 80)
-
-    local_video = None
-    reference_dir = None
+    logger.info(f"🎯 Confidence    : HIGH≤{request.high_confidence_threshold}, MED≤{request.medium_confidence_threshold}, LOW≤{request.low_confidence_threshold}")
+    logger.info(f"🔧 Features      : Attr={request.include_face_attributes}, Anti-spoof={request.include_anti_spoofing}, Quality={request.include_face_quality}")
+    logger.info("═" * 90)
 
     try:
-        # 1) Download video with enhanced error handling
+        # 1) Create UUID-based temporary directory for this request
+        request_temp_dir = create_request_temp_dir()
+        logger.info(f"🆔 Request temp directory: {request_temp_dir}")
+
+        # 2) Download video with enhanced error handling
         logger.info("📥 Downloading video...")
         try:
-            local_video = download_video(request.video_url)
+            local_video = download_video(request.video_url, request_temp_dir)
             video_size = os.path.getsize(local_video) / (1024 * 1024)  # MB
             logger.info(f"✅ Video downloaded successfully ({video_size:.1f} MB)")
         except Exception as e:
             logger.error(f"❌ Video download failed: {e}")
             raise HTTPException(status_code=400, detail=f"Video download failed: {e}")
 
-        # 2) List reference images from S3
+        # 3) List reference images from S3
         logger.info("📋 Listing reference images from S3...")
         try:
             photo_keys = list_s3_keys(request.photos_bucket, request.photos_prefix)
@@ -374,11 +610,19 @@ def match_faces(request: MatchRequest):
 
         if not photo_keys:
             logger.warning("⚠️  No reference images found in S3; returning empty matches")
-            return MatchResponse(matches=[])
+            return MatchResponse(
+                matches=[],
+                total_frames_processed=0,
+                total_faces_detected=0,
+                processing_time_seconds=time.time() - start_time,
+                high_confidence_matches=0,
+                medium_confidence_matches=0
+            )
 
-        # 3) Download reference images with validation
+        # 4) Download reference images to isolated folder
         logger.info("⬇️  Downloading reference images...")
-        reference_dir = tempfile.mkdtemp()
+        reference_dir = os.path.join(request_temp_dir, "reference_photos")
+        os.makedirs(reference_dir, exist_ok=True)
         downloaded_count = 0
 
         for i, key in enumerate(photo_keys):
@@ -407,59 +651,82 @@ def match_faces(request: MatchRequest):
             logger.error("❌ No reference images could be downloaded")
             raise HTTPException(status_code=500, detail="No reference images could be downloaded")
 
-        # 4) Perform optimized face matching
-        logger.info("🔍 Starting face matching with RetinaFace + ArcFace...")
+        # 5) Perform enhanced face matching with comprehensive confidence analysis
+        logger.info("🔍 Starting ENHANCED face matching with comprehensive confidence analysis...")
         try:
-            results = match_faces_via_deepface_find(local_video, reference_dir)
+            results, stats = match_faces_via_deepface_find(local_video, reference_dir, request_temp_dir, request)
         except Exception as e:
-            logger.error(f"❌ Face matching failed: {e}")
-            raise HTTPException(status_code=500, detail=f"Face matching failed: {e}")
+            logger.error(f"❌ Enhanced face matching failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Enhanced face matching failed: {e}")
 
-        # 5) Results summary
+        # 6) Calculate enhanced statistics
         elapsed = time.time() - start_time
-        logger.info("═" * 80)
-        logger.info(f"🎉 FACE MATCHING COMPLETE!")
+        high_conf_matches = len([m for m in results if m.confidence_level == "HIGH"])
+        medium_conf_matches = len([m for m in results if m.confidence_level == "MEDIUM"])
+
+        # Enhanced final statistics
+        total_processed = stats.get('processed_frames', 0)
+        total_faces = stats.get('total_faces_detected', 0)
+        avg_faces_per_frame = total_faces / total_processed if total_processed > 0 else 0
+
+        logger.info("═" * 90)
+        logger.info(f"🎉 ENHANCED FACE MATCHING COMPLETE! [ID: {request_id}]")
         logger.info(f"⏱️  Total processing time: {elapsed:.2f} seconds")
-        logger.info(f"🎯 Matches found: {len(results)}")
+        logger.info(f"📊 Enhanced Statistics:")
+        logger.info(f"  📊 Total frames processed: {total_processed}")
+        logger.info(f"  👥 Total faces detected: {total_faces} ({avg_faces_per_frame:.1f} per frame)")
+        logger.info(f"  ❌ Detection failures: {stats.get('detection_failures', 0)}")
+        logger.info(f"  🎯 HIGH confidence matches: {high_conf_matches}")
+        logger.info(f"  ✅ MEDIUM confidence matches: {medium_conf_matches}")
+        logger.info(f"  📈 Total matches returned: {len(results)}")
 
         if results:
-            logger.info("📋 Match Summary:")
+            logger.info("📋 Top Matches Summary:")
             for i, match in enumerate(results[:5]):  # Show first 5 matches
-                logger.info(f"   {i+1}. {match.photo_key} at {match.timestamp_ms}ms (frame {match.frame_index})")
+                logger.info(f"   {i+1}. {match.photo_key} at {match.timestamp_ms}ms "
+                          f"({match.confidence_level}, {match.similarity_percentage:.1f}%)")
             if len(results) > 5:
                 logger.info(f"   ... and {len(results) - 5} more matches")
         else:
-            logger.info("ℹ️  No faces matched the reference images")
+            logger.info("ℹ️  No faces matched the reference images with sufficient confidence")
 
-        logger.info("═" * 80)
+        logger.info("═" * 90)
 
-        return MatchResponse(matches=results)
+        return MatchResponse(
+            matches=results,
+            total_frames_processed=total_processed,
+            total_faces_detected=total_faces,
+            processing_time_seconds=elapsed,
+            high_confidence_matches=high_conf_matches,
+            medium_confidence_matches=medium_conf_matches
+        )
 
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        logger.error(f"💥 Unexpected error: {e}")
+        logger.error(f"💥 Unexpected error in enhanced request [{request_id}]: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
     finally:
-        # 6) Cleanup temporary files
-        cleanup_errors = []
-
-        if local_video:
+        # 7) GUARANTEED CLEANUP: Always clean up the entire request temp directory
+        if request_temp_dir and os.path.exists(request_temp_dir):
             try:
-                video_dir = os.path.dirname(local_video)
-                shutil.rmtree(video_dir, ignore_errors=True)
-                logger.debug("🧹 Cleaned up video files")
+                shutil.rmtree(request_temp_dir, ignore_errors=True)
+                logger.info(f"🧹 Cleaned up request temp directory: {request_temp_dir}")
             except Exception as e:
-                cleanup_errors.append(f"video cleanup: {e}")
+                logger.warning(f"⚠️  Cleanup warning for {request_temp_dir}: {e}")
+        else:
+            logger.debug("🧹 No temp directory to clean up")
 
-        if reference_dir:
-            try:
-                shutil.rmtree(reference_dir, ignore_errors=True)
-                logger.debug("🧹 Cleaned up reference images")
-            except Exception as e:
-                cleanup_errors.append(f"reference cleanup: {e}")
+# ──────────────────────────────────────────────────────────────────────────────
+# 11. Health check endpoint
+# ──────────────────────────────────────────────────────────────────────────────
+@app.get("/health")
+def health_check():
+    """Simple health check endpoint"""
+    return {"status": "healthy", "service": "enhanced_face_recognition_api"}
 
-        if cleanup_errors:
-            logger.warning(f"⚠️  Cleanup warnings: {'; '.join(cleanup_errors)}")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8004)
