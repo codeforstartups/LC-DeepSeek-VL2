@@ -186,6 +186,8 @@ def match_faces_in_video(local_video_path: str, ref_embeds: Dict[str, np.ndarray
     Open the local video file, iterate frame by frame, compute each frame's embedding,
     and compare to each reference embedding. Whenever cosine distance ≤ 0.4,
     record a MatchResult (photo_key, frame_index, timestamp_ms).
+
+    OPTIMIZED: Process at 1 FPS instead of full frame rate for efficiency.
     """
     logger.info(f"Starting face matching in video: {local_video_path}")
     logger.info(f"Will compare against {len(ref_embeds)} reference embeddings")
@@ -200,9 +202,15 @@ def match_faces_in_video(local_video_path: str, ref_embeds: Dict[str, np.ndarray
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_duration_ms = 1000.0 / fps
 
+    # Calculate frame skip to achieve ~1 FPS processing
+    frame_skip = max(1, int(fps))  # Process every Nth frame to get ~1 FPS
+
     logger.info(f"Video info - FPS: {fps}, Total frames: {total_frames}, Duration: {total_frames/fps:.2f}s")
+    logger.info(f"OPTIMIZATION: Processing every {frame_skip} frames (~1 FPS) instead of all {fps} FPS")
+    logger.info(f"Expected processing frames: {total_frames // frame_skip}")
 
     frame_index = 0
+    processed_frames = 0
     last_log_time = time.time()
 
     while True:
@@ -210,54 +218,60 @@ def match_faces_in_video(local_video_path: str, ref_embeds: Dict[str, np.ndarray
         if not ret:
             break
 
-        # Log progress every 10 seconds
-        current_time = time.time()
-        if current_time - last_log_time >= 10:
-            progress = (frame_index / total_frames * 100) if total_frames > 0 else 0
-            logger.info(f"Processing frame {frame_index}/{total_frames} ({progress:.1f}%)")
-            last_log_time = current_time
+        # Only process every Nth frame to achieve ~1 FPS
+        if frame_index % frame_skip == 0:
+            processed_frames += 1
 
-        # Compute timestamp for this frame (in milliseconds)
-        pos_msec = int(cap.get(cv2.CAP_PROP_POS_MSEC))
-        if pos_msec <= 0:
-            pos_msec = int(frame_index * frame_duration_ms)
+            # Log progress every 10 seconds
+            current_time = time.time()
+            if current_time - last_log_time >= 10:
+                progress = (frame_index / total_frames * 100) if total_frames > 0 else 0
+                logger.info(f"Processing frame {frame_index}/{total_frames} ({progress:.1f}%) - Processed: {processed_frames}")
+                last_log_time = current_time
 
-        # Compute embedding for the first detected face (if any)
-        try:
-            results = DeepFace.represent(
-                img_path=frame,
-                model_name="ArcFace",
-                enforce_detection=False,
-                detector_backend="opencv"
-            )
-        except Exception as e:
-            logger.debug(f"Failed to process frame {frame_index}: {e}")
-            frame_index += 1
-            continue
+            # Compute timestamp for this frame (in milliseconds)
+            pos_msec = int(cap.get(cv2.CAP_PROP_POS_MSEC))
+            if pos_msec <= 0:
+                pos_msec = int(frame_index * frame_duration_ms)
 
-        if not results or len(results) == 0:
-            frame_index += 1
-            continue
+            # Compute embedding for the first detected face (if any)
+            try:
+                results = DeepFace.represent(
+                    img_path=frame,
+                    model_name="ArcFace",
+                    enforce_detection=False,
+                    detector_backend="opencv"
+                )
+            except Exception as e:
+                logger.debug(f"Failed to process frame {frame_index}: {e}")
+                frame_index += 1
+                continue
 
-        frame_emb = np.array(results[0]["embedding"])
-        logger.debug(f"Frame {frame_index}: Found face, computing matches...")
+            if not results or len(results) == 0:
+                logger.debug(f"No face detected in frame {frame_index}")
+                frame_index += 1
+                continue
 
-        # Compare to each reference embedding
-        for key, ref_vec in ref_embeds.items():
-            # Cosine similarity: (A·B)/(||A||·||B||); distance = 1 - similarity
-            sim = np.dot(frame_emb, ref_vec) / (np.linalg.norm(frame_emb) * np.linalg.norm(ref_vec) + 1e-10)
-            distance = 1.0 - sim
-            if distance <= 0.4:  # threshold for ArcFace + cosine
-                match = MatchResult(photo_key=key, frame_index=frame_index, timestamp_ms=pos_msec)
-                matches.append(match)
-                logger.info(f"MATCH FOUND! Frame {frame_index} matches {key} (distance: {distance:.3f}, timestamp: {pos_msec}ms)")
-                # Stop checking other references once matched
-                break
+            frame_emb = np.array(results[0]["embedding"])
+            logger.debug(f"Frame {frame_index}: Found face, computing matches...")
+
+            # Compare to each reference embedding
+            for key, ref_vec in ref_embeds.items():
+                # Cosine similarity: (A·B)/(||A||·||B||); distance = 1 - similarity
+                sim = np.dot(frame_emb, ref_vec) / (np.linalg.norm(frame_emb) * np.linalg.norm(ref_vec) + 1e-10)
+                distance = 1.0 - sim
+                if distance <= 0.4:  # threshold for ArcFace + cosine
+                    match = MatchResult(photo_key=key, frame_index=frame_index, timestamp_ms=pos_msec)
+                    matches.append(match)
+                    logger.info(f"MATCH FOUND! Frame {frame_index} matches {key} (distance: {distance:.3f}, timestamp: {pos_msec}ms)")
+                    # Stop checking other references once matched
+                    break
 
         frame_index += 1
 
     cap.release()
-    logger.info(f"Video processing complete. Total matches found: {len(matches)}")
+    logger.info(f"Video processing complete. Processed {processed_frames} frames out of {total_frames} total frames")
+    logger.info(f"Total matches found: {len(matches)}")
     return matches
 
 # ──────────────────────────────────────────────────────────────────────────────
