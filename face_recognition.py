@@ -6,11 +6,22 @@ import boto3
 import cv2
 import numpy as np
 import requests
-from io import BytesIO
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from deepface import DeepFace
 from typing import List, Dict
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 0. Enable TensorFlow GPU Memory Growth (must run before any DeepFace calls)
+# ──────────────────────────────────────────────────────────────────────────────
+import tensorflow as tf
+
+gpus = tf.config.experimental.list_physical_devices("GPU")
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    # (Optional) Restrict TensorFlow to GPU:0 only
+    # tf.config.set_visible_devices(gpus[0], "GPU")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. FastAPI app initialization
@@ -44,7 +55,6 @@ def download_video(video_url: str) -> str:
     Download the video from the given URL into a temporary local file.
     Returns the local filepath.
     """
-    # Create a temp file
     temp_dir = tempfile.mkdtemp()
     local_video_path = os.path.join(temp_dir, "input_video.mp4")
     try:
@@ -109,8 +119,7 @@ def compute_reference_embeddings(bucket: str, keys: List[str], local_dir: str) -
         local_path = os.path.join(local_dir, filename)
         try:
             download_s3_object(bucket, key, local_path)
-        except Exception as e:
-            # Skip if download fails
+        except Exception:
             continue
 
         try:
