@@ -230,7 +230,7 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
             # Get the best match (lowest distance)
             top_match = df.iloc[0]
             top_identity = top_match["identity"]  # Full path to matched reference image
-            top_distance = float(top_match["ArcFace_cosine"])
+            top_distance = float(top_match["cosine"])
 
             # Extract relative filename from full path
             rel_key = os.path.basename(top_identity)
@@ -268,7 +268,7 @@ def match_faces_via_deepface_find(video_path: str, reference_dir: str) -> List[M
                 logger.debug(f"Frame {idx} top 3 matches:")
                 for i in range(min(3, len(df))):
                     match_identity = os.path.basename(df.iloc[i]["identity"])
-                    match_distance = float(df.iloc[i]["ArcFace_cosine"])
+                    match_distance = float(df.iloc[i]["cosine"])
                     logger.debug(f"  {i+1}. {match_identity}: {match_distance:.3f}")
 
         # Final statistics
