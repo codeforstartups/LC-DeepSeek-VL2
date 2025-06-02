@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+boto3
+opencv-python
+deepface
+numpy
+requests
+pydantic
