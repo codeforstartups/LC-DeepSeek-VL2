@@ -10,6 +10,7 @@ import logging
 import numpy as np
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from deepface import DeepFace
 from typing import List, Optional
@@ -36,9 +37,21 @@ if gpus:
     # tf.config.set_visible_devices(gpus[0], "GPU")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. FastAPI app initialization
+# 1. FastAPI app initialization with CORS
 # ──────────────────────────────────────────────────────────────────────────────
-app = FastAPI()
+app = FastAPI(
+    title="Enhanced Face Recognition API",
+    description="Advanced video face recognition with comprehensive confidence analysis, facial attributes, and anti-spoofing detection."
+)
+
+# Add CORS middleware to allow requests from any origin (for development)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For production, specify allowed origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. ENHANCED Pydantic models with confidence parameters
