@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1️⃣ Go to this script’s own dir (LC-DeepSeek-VL2)
+# 1️⃣ Go to this script's own dir (LC-DeepSeek-VL2)
 cd "$(dirname "$0")"
 
 # 2️⃣ Map each screen → startup command
@@ -20,6 +20,11 @@ uvicorn yolo_api:app --host 0.0.0.0 --port 8002\
   [deepseekvl2_medical]="\
 source venv/bin/activate && \
 uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000\
+"
+  [face_recognition]="\
+source venv/bin/activate && \
+pip install -r requirements_face_recognition.txt && \
+uvicorn face_recognition:app --host 0.0.0.0 --port 8004 --reload\
 "
   [deepseekvl2_models]="\
 chmod +x start-ollama.sh && \
