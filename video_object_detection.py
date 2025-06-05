@@ -6,6 +6,7 @@ import tempfile
 import logging
 import requests
 import math
+import re
 from pathlib import Path
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Body
@@ -59,6 +60,41 @@ def extract_1fps(video_path: str, out_dir: str):
 
     cap.release()
     return sorted(frame_files), duration
+
+def parse_detection_response(response_text):
+    """Parse the structured response from DeepSeek"""
+
+    # Initialize result
+    result = {
+        "answer": None,
+        "description": "",
+        "confidence": None
+    }
+
+    # Split by lines and process each
+    lines = response_text.strip().split('\n')
+
+    for line in lines:
+        line = line.strip()
+
+        # Extract Answer (YES/NO)
+        if line.startswith("Answer:"):
+            answer = line.replace("Answer:", "").strip()
+            result["answer"] = answer.upper() == "YES"
+
+        # Extract Description
+        elif line.startswith("Description:"):
+            result["description"] = line.replace("Description:", "").strip()
+
+        # Extract Confidence (try to get just the number)
+        elif line.startswith("Confidence:"):
+            conf_text = line.replace("Confidence:", "").strip()
+            # Try to extract number (1-10)
+            numbers = re.findall(r'\d+', conf_text)
+            if numbers:
+                result["confidence"] = int(numbers[0])
+
+    return result
 
 async def detect_object_in_frame(frame_path: str, query: str, frame_second: int):
     """Send frame to DeepSeek VL2 for object detection"""
@@ -133,15 +169,35 @@ async def detect_object_in_video(
             # Analyze each frame
             logger.info("Analyzing frames for object detection...")
             frame_responses = []
+            positive_detections = []  # Only YES answers
 
             for i, frame_file in enumerate(frames):
                 frame_path = os.path.join(frame_dir, frame_file)
                 response = await detect_object_in_frame(frame_path, query, i)
-                frame_responses.append({
+
+                # Parse the response
+                parsed_result = parse_detection_response(response)
+
+                frame_data = {
                     "second": i,
                     "frame_file": frame_file,
-                    "deepseek_response": response
-                })
+                    "deepseek_response": response,
+                    "parsed_result": {
+                        "found": parsed_result["answer"],
+                        "description": parsed_result["description"],
+                        "confidence": parsed_result["confidence"]
+                    }
+                }
+
+                frame_responses.append(frame_data)
+
+                # Add to positive detections if YES answer
+                if parsed_result["answer"]:
+                    positive_detections.append({
+                        "second": i,
+                        "description": parsed_result["description"],
+                        "confidence": parsed_result["confidence"]
+                    })
 
             # Clean up temp video file
             try:
@@ -149,12 +205,23 @@ async def detect_object_in_video(
             except OSError:
                 logger.warning(f"Couldn't delete temp file {tmp_vid.name}")
 
+            # Calculate summary statistics
+            total_frames = len(frames)
+            detection_count = len(positive_detections)
+            detection_rate = (detection_count / total_frames) * 100 if total_frames > 0 else 0
+
             # Return structured response
             return {
                 "query": query,
                 "video_duration": round(duration, 2),
-                "total_frames_analyzed": len(frames),
-                "frame_responses": frame_responses
+                "total_frames_analyzed": total_frames,
+                "detection_summary": {
+                    "total_detections": detection_count,
+                    "detection_rate": f"{detection_rate:.1f}%",
+                    "found_at_seconds": [det["second"] for det in positive_detections]
+                },
+                "positive_detections": positive_detections,  # Only YES answers
+                "frame_responses": frame_responses  # All frames with raw + parsed data
             }
 
     except Exception as e:
