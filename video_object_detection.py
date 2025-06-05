@@ -7,6 +7,8 @@ import logging
 import requests
 import math
 import re
+import uuid
+import shutil
 from pathlib import Path
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Body
@@ -131,6 +133,24 @@ async def detect_object_in_frame(frame_path: str, query: str, frame_second: int)
         logger.error(f"Error detecting object in frame: {e}")
         return f"ERROR: {str(e)}"
 
+def cleanup_request_files(request_id: str, temp_video_path: str = None, work_dir: str = None):
+    """Clean up all files associated with a request"""
+    try:
+        # Clean up temporary video file
+        if temp_video_path and os.path.exists(temp_video_path):
+            os.remove(temp_video_path)
+            logger.info(f"[{request_id}] Cleaned up video file: {temp_video_path}")
+    except Exception as e:
+        logger.warning(f"[{request_id}] Failed to remove video file {temp_video_path}: {e}")
+
+    try:
+        # Clean up work directory and all frames
+        if work_dir and os.path.exists(work_dir):
+            shutil.rmtree(work_dir)
+            logger.info(f"[{request_id}] Cleaned up work directory: {work_dir}")
+    except Exception as e:
+        logger.warning(f"[{request_id}] Failed to remove work directory {work_dir}: {e}")
+
 @app.post("/detect_object/")
 async def detect_object_in_video(
     video_url: str = Body(..., embed=True),
@@ -138,7 +158,9 @@ async def detect_object_in_video(
 ):
     """Main endpoint for object detection in video frames"""
 
-    logger.info(f"Starting object detection for query: '{query}' in video: {video_url}")
+    # Generate unique request ID
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Starting object detection for query: '{query}' in video: {video_url}")
 
     # Validate video URL format
     parsed_url = urlparse(video_url)
@@ -148,31 +170,48 @@ async def detect_object_in_video(
     if ext not in {".mp4", ".avi", ".mov"}:
         raise HTTPException(400, f"Unsupported video format: '{ext}'. Supported: .mp4, .avi, .mov")
 
-    try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_vid, \
-             tempfile.TemporaryDirectory() as frame_dir:
+    # Initialize paths for cleanup
+    temp_video_path = None
+    work_dir = None
 
+    try:
+        # Create unique work directory for this request
+        work_dir = tempfile.mkdtemp(prefix=f"video_detection_{request_id}_")
+        frame_dir = os.path.join(work_dir, "frames")
+        os.makedirs(frame_dir, exist_ok=True)
+
+        logger.info(f"[{request_id}] Created work directory: {work_dir}")
+
+        # Create temporary video file with unique name
+        temp_video_fd, temp_video_path = tempfile.mkstemp(suffix=ext, prefix=f"video_{request_id}_")
+
+        try:
             # Download video
-            logger.info("Downloading video...")
+            logger.info(f"[{request_id}] Downloading video...")
             r = requests.get(video_url, stream=True)
             if r.status_code != 200:
-                raise HTTPException(400, "Failed to download video")
+                raise HTTPException(400, f"Failed to download video: HTTP {r.status_code}")
 
-            for chunk in r.iter_content(8192):
-                tmp_vid.write(chunk)
-            tmp_vid.flush()
+            with os.fdopen(temp_video_fd, 'wb') as temp_video_file:
+                for chunk in r.iter_content(8192):
+                    temp_video_file.write(chunk)
+
+            logger.info(f"[{request_id}] Video downloaded to: {temp_video_path}")
 
             # Extract frames at 1 FPS
-            logger.info("Extracting frames...")
-            frames, duration = extract_1fps(tmp_vid.name, frame_dir)
+            logger.info(f"[{request_id}] Extracting frames...")
+            frames, duration = extract_1fps(temp_video_path, frame_dir)
+            logger.info(f"[{request_id}] Extracted {len(frames)} frames")
 
             # Analyze each frame
-            logger.info("Analyzing frames for object detection...")
+            logger.info(f"[{request_id}] Analyzing frames for object detection...")
             frame_responses = []
             positive_detections = []  # Only YES answers
 
             for i, frame_file in enumerate(frames):
                 frame_path = os.path.join(frame_dir, frame_file)
+                logger.info(f"[{request_id}] Processing frame {i+1}/{len(frames)}")
+
                 response = await detect_object_in_frame(frame_path, query, i)
 
                 # Parse the response
@@ -199,19 +238,16 @@ async def detect_object_in_video(
                         "confidence": parsed_result["confidence"]
                     })
 
-            # Clean up temp video file
-            try:
-                os.remove(tmp_vid.name)
-            except OSError:
-                logger.warning(f"Couldn't delete temp file {tmp_vid.name}")
-
             # Calculate summary statistics
             total_frames = len(frames)
             detection_count = len(positive_detections)
             detection_rate = (detection_count / total_frames) * 100 if total_frames > 0 else 0
 
+            logger.info(f"[{request_id}] Analysis complete. Found {detection_count}/{total_frames} positive detections")
+
             # Return structured response
-            return {
+            response_data = {
+                "request_id": request_id,
                 "query": query,
                 "video_duration": round(duration, 2),
                 "total_frames_analyzed": total_frames,
@@ -224,9 +260,21 @@ async def detect_object_in_video(
                 "frame_responses": frame_responses  # All frames with raw + parsed data
             }
 
+            return response_data
+
+        except Exception as e:
+            logger.error(f"[{request_id}] Error during processing: {e}")
+            raise HTTPException(500, f"Object detection failed: {str(e)}")
+
     except Exception as e:
-        logger.error(f"Error in object detection: {e}")
+        logger.error(f"[{request_id}] Error in object detection: {e}")
         raise HTTPException(500, f"Object detection failed: {str(e)}")
+
+    finally:
+        # Always clean up, regardless of success or failure
+        logger.info(f"[{request_id}] Starting cleanup...")
+        cleanup_request_files(request_id, temp_video_path, work_dir)
+        logger.info(f"[{request_id}] Cleanup completed")
 
 @app.get("/health")
 async def health_check():
