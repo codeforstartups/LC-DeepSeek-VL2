@@ -65,31 +65,15 @@ async def detect_object_in_frame(frame_path: str, query: str, frame_second: int)
 
     # Create detection prompt
     prompt = f"""
-You are an expert object detection AI assistant.
+Look at this image and tell me if you can see "{query}".
 
-TASK: Analyze this single video frame and detect if "{query}" is present.
+If you see "{query}" in the image:
+- Describe what you see
 
-DETECTION REQUIREMENTS:
-1. Carefully examine the frame for any instance of "{query}"
-2. Look for visual characteristics, shapes, colors, and patterns that match "{query}"
-3. Consider partial views, different angles, and lighting conditions
-4. Focus entirely on whether "{query}" is visible in this frame
+If you don't see "{query}" in the image:
+- Say "NOT FOUND"
 
-RESPONSE FORMAT:
-If "{query}" is detected:
-DETECTION_FOUND
-Confidence: [high/medium/low]
-Description: [detailed description of what you see and why it matches "{query}"]
-
-If "{query}" is NOT detected:
-NO_DETECTION
-
-CONFIDENCE LEVELS:
-- High: You are very certain this is "{query}"
-- Medium: Probably "{query}" but with some uncertainty
-- Low: Possibly "{query}" but unclear or partial view
-
-Focus on accuracy and provide specific visual details that confirm the presence of "{query}".
+Focus only on finding "{query}". Be clear and direct.
 """
 
     try:
@@ -99,7 +83,7 @@ Focus on accuracy and provide specific visual details that confirm the presence 
                     resp = await client.post(
                         DEEPSEEK_API_URL,
                         files={"file": (Path(frame_path).name, f, "image/jpeg")},
-                        data={"prompt": prompt, "analysis_type": "ocr"}
+                        data={"prompt": prompt, "analysis_type": "object_detection"}
                     )
                 resp.raise_for_status()
                 return resp.json().get("response", "")

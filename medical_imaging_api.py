@@ -52,7 +52,7 @@ async def health_check():
         "status": "healthy",
         "service": "Unified Analysis API (Medical + OCR)",
         "model": "deepseek-ai/deepseek-vl2-tiny",
-        "supported_types": ["medical", "ocr"]
+        "supported_types": ["medical", "ocr", "object_detection"]
     }
 
 @app.post("/analyze/")
@@ -67,13 +67,13 @@ async def analyze_image(
     Args:
         file: Image file (medical scans, documents, photos, etc.)
         prompt: Analysis request or specific focus area
-        analysis_type: Type of analysis ("medical" or "ocr")
+        analysis_type: Type of analysis ("medical", "ocr", or "object_detection")
     """
     logging.info(f"Received analysis request: file={file.filename if file else None}, type={analysis_type}, prompt={prompt}")
 
     # Validate analysis type
-    if analysis_type not in ["medical", "ocr"]:
-        raise HTTPException(status_code=400, detail="analysis_type must be 'medical' or 'ocr'")
+    if analysis_type not in ["medical", "ocr", "object_detection"]:
+        raise HTTPException(status_code=400, detail="analysis_type must be 'medical', 'ocr', or 'object_detection'")
 
     try:
         if not file:
@@ -127,6 +127,18 @@ async def analyze_image(
                 max_tokens = 256
                 temperature = 0.4
                 top_p = 0.9
+            elif analysis_type == "object_detection":
+                system_prompt = (
+                    "You are an expert object detection and visual recognition AI assistant. "
+                    "Your task is to carefully analyze images and detect specific objects, people, animals, or items as requested by the user. "
+                    "Focus on accuracy and provide clear, direct responses about what you observe in the image. "
+                    "When detecting objects, describe their visual characteristics, location, and any relevant details that confirm identification. "
+                    "Be precise and factual in your observations. If the requested object is not present, clearly state this. "
+                    "Provide concise but informative descriptions that help verify the detection results."
+                )
+                max_tokens = 200
+                temperature = 0.2
+                top_p = 0.7
 
             inputs = processor(
                 conversations=[
