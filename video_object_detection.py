@@ -60,18 +60,20 @@ def extract_1fps(video_path: str, out_dir: str):
     cap.release()
     return sorted(frame_files), duration
 
-def make_panoramas_6_frames(frame_dir: str, frames: list, pano_dir: str):
+def make_panoramas_dynamic(frame_dir: str, frames: list, pano_dir: str, rows: int = 2, cols: int = 3):
     """
-    Create panoramas with exactly 6 frames each (2 rows × 3 columns)
+    Create panoramas with specified grid size (rows × cols)
     Returns list of panorama paths and frame mapping info
     """
     os.makedirs(pano_dir, exist_ok=True)
     pano_paths = []
     pano_info = []
 
-    # Process frames in batches of 6
-    for batch_start in range(0, len(frames), 6):
-        batch_frames = frames[batch_start:batch_start + 6]
+    frames_per_pano = rows * cols
+
+    # Process frames in batches
+    for batch_start in range(0, len(frames), frames_per_pano):
+        batch_frames = frames[batch_start:batch_start + frames_per_pano]
 
         # Load images
         imgs = []
@@ -83,8 +85,8 @@ def make_panoramas_6_frames(frame_dir: str, frames: list, pano_dir: str):
         if not imgs:
             continue
 
-        # Pad with blank images if less than 6 frames
-        while len(imgs) < 6:
+        # Pad with blank images if less than required frames
+        while len(imgs) < frames_per_pano:
             # Create blank image with same size as first image
             blank = Image.new("RGB", imgs[0].size, (0, 0, 0))
             imgs.append(blank)
@@ -93,20 +95,16 @@ def make_panoramas_6_frames(frame_dir: str, frames: list, pano_dir: str):
         max_w = max(img.width for img in imgs)
         max_h = max(img.height for img in imgs)
 
-        # Create panorama canvas (2 rows × 3 columns)
-        pano_width = 3 * max_w
-        pano_height = 2 * max_h
+        # Create panorama canvas (rows × cols)
+        pano_width = cols * max_w
+        pano_height = rows * max_h
         pano = Image.new("RGB", (pano_width, pano_height))
 
-        # Frame positions mapping (left to right, top to bottom)
-        positions = [
-            (0, 0),     # row 1, col 1 - second 0
-            (1, 0),     # row 1, col 2 - second 1
-            (2, 0),     # row 1, col 3 - second 2
-            (0, 1),     # row 2, col 1 - second 3
-            (1, 1),     # row 2, col 2 - second 4
-            (2, 1)      # row 2, col 3 - second 5
-        ]
+        # Generate positions dynamically (left to right, top to bottom)
+        positions = []
+        for row in range(rows):
+            for col in range(cols):
+                positions.append((col, row))
 
         # Paste images into grid
         frame_mapping = []
@@ -125,15 +123,16 @@ def make_panoramas_6_frames(frame_dir: str, frames: list, pano_dir: str):
             })
 
         # Save panorama
-        pano_file = f"pano_{batch_start//6:03d}.jpg"
+        pano_file = f"pano_{batch_start//frames_per_pano:03d}.jpg"
         pano_path = os.path.join(pano_dir, pano_file)
         pano.save(pano_path)
 
         pano_paths.append(pano_path)
         pano_info.append({
             "panorama_file": pano_file,
-            "frame_range": f"{batch_start}-{batch_start + 5} seconds",
-            "frame_mapping": frame_mapping
+            "frame_range": f"{batch_start}-{batch_start + frames_per_pano - 1} seconds",
+            "frame_mapping": frame_mapping,
+            "grid_size": f"{rows}×{cols}"
         })
 
     return pano_paths, pano_info
@@ -143,28 +142,48 @@ async def detect_object_in_panorama(pano_path: str, query: str):
 
     # Create detection prompt
     prompt = f"""
-You are analyzing a panoramic image made of 6 video frames arranged in a 2×3 grid (2 rows, 3 columns).
-The frames are arranged left to right, top to bottom.
+You are an expert video analysis AI assistant specializing in object detection and visual recognition.
 
-Grid layout:
-[Frame 1] [Frame 2] [Frame 3]
-[Frame 4] [Frame 5] [Frame 6]
+TASK: Analyze this panoramic image composed of sequential video frames and detect instances of "{query}".
 
-TASK: Detect if there is "{query}" in any of these frames.
+FRAME TIMING SYSTEM:
+Each frame in the panorama represents exactly 1 second of video time. Frames are arranged in a grid pattern, and you must count them from left to right, top to bottom:
 
-For each detection, specify:
-1. Which grid position (row and column number)
-2. Confidence level (high/medium/low)
-3. Brief description of what you see
+Example for any grid size:
+Row 1: [1] [2] [3] [4] ...
+Row 2: [5] [6] [7] [8] ...
+Row 3: [9] [10] [11] [12] ...
 
-Respond in this exact format:
+So if you see the object in:
+- Top-left frame = Second 1
+- Second frame in top row = Second 2
+- Third frame in top row = Second 3
+- First frame in second row = Second 4
+- And so on...
+
+DETECTION REQUIREMENTS:
+1. Carefully examine each frame for "{query}"
+2. Look for visual characteristics, shapes, colors, and patterns that match "{query}"
+3. Consider partial views, different angles, and lighting conditions
+4. Assess confidence based on clarity and certainty of identification
+
+RESPONSE FORMAT:
+For each detection, provide:
+
 DETECTION_RESULTS:
-Position: row X, column Y
+Second: [frame number]
 Confidence: [high/medium/low]
-Description: [what you see]
+Description: [detailed description of what you see and why it matches "{query}"]
 
-If multiple detections, list each separately.
-If no detection, respond: NO_DETECTION
+IMPORTANT GUIDELINES:
+- If you find multiple instances, list each detection separately
+- Be specific about visual details that confirm it's "{query}"
+- Use "high" confidence only when you're very certain
+- Use "medium" for probable matches with some uncertainty
+- Use "low" for possible matches that are unclear
+- If no "{query}" is detected in any frame, respond: NO_DETECTION
+
+Focus entirely on detecting "{query}" and provide accurate timing information based on the frame position in the grid.
 """
 
     try:
@@ -190,11 +209,20 @@ If no detection, respond: NO_DETECTION
 @app.post("/detect_object/")
 async def detect_object_in_video(
     video_url: str = Body(..., embed=True),
-    query: str = Body(..., embed=True)
+    query: str = Body(..., embed=True),
+    rows: int = Body(default=2, embed=True),
+    cols: int = Body(default=3, embed=True)
 ):
     """Main endpoint for object detection in video"""
 
     logger.info(f"Starting object detection for query: '{query}' in video: {video_url}")
+    logger.info(f"Using grid size: {rows}×{cols} ({rows*cols} frames per panorama)")
+
+    # Validate grid parameters
+    if rows < 1 or cols < 1:
+        raise HTTPException(400, "Rows and columns must be positive integers")
+    if rows * cols > 50:  # Reasonable limit
+        raise HTTPException(400, "Grid size too large (max 50 frames per panorama)")
 
     # Validate video URL format
     parsed_url = urlparse(video_url)
@@ -225,7 +253,7 @@ async def detect_object_in_video(
 
             # Create panoramas
             logger.info("Creating panoramas...")
-            pano_paths, pano_infos = make_panoramas_6_frames(frame_dir, frames, pano_dir)
+            pano_paths, pano_infos = make_panoramas_dynamic(frame_dir, frames, pano_dir, rows, cols)
 
             # Detect objects in each panorama
             logger.info("Analyzing panoramas for object detection...")
@@ -236,7 +264,7 @@ async def detect_object_in_video(
                 panorama_responses.append({
                     "panorama_index": i,
                     "frame_range": pano_info['frame_range'],
-                    "frame_mapping": pano_info['frame_mapping'],
+                    "grid_size": pano_info['grid_size'],
                     "deepseek_response": response
                 })
 
@@ -249,6 +277,8 @@ async def detect_object_in_video(
             # Return structured response
             return {
                 "query": query,
+                "grid_configuration": f"{rows}×{cols}",
+                "frames_per_panorama": rows * cols,
                 "video_duration": round(duration, 2),
                 "total_frames_extracted": len(frames),
                 "total_panoramas": len(pano_paths),
