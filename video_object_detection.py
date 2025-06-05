@@ -65,15 +65,27 @@ async def detect_object_in_frame(frame_path: str, query: str, frame_second: int)
 
     # Create detection prompt
     prompt = f"""
-Look at this image and tell me if you can see "{query}".
+You are an expert object detection AI. Analyze this image carefully to detect "{query}".
 
-If you see "{query}" in the image:
-- Describe what you see
+TASK: Search for "{query}" in this image with high accuracy.
 
-If you don't see "{query}" in the image:
-- Say "NOT FOUND"
+DETECTION GUIDELINES:
+- Examine all parts of the image thoroughly
+- Look for visual characteristics that match "{query}"
+- Consider different angles, sizes, and lighting conditions
+- Be precise about what you observe
 
-Focus only on finding "{query}". Be clear and direct.
+RESPONSE FORMAT:
+If "{query}" is present in the image:
+Provide a clear description of what you see, including:
+- Location in the image
+- Visual details that confirm it's "{query}"
+- Size, color, or other distinguishing features
+
+If "{query}" is NOT present in the image:
+Respond with: NOT_FOUND
+
+Focus entirely on detecting "{query}". Be accurate and specific in your analysis.
 """
 
     try:
