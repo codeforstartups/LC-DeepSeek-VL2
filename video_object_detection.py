@@ -64,29 +64,16 @@ async def detect_object_in_frame(frame_path: str, query: str, frame_second: int)
     """Send frame to DeepSeek VL2 for object detection"""
 
     # Create detection prompt
-    prompt = f"""
-You are an expert object detection AI. Analyze this image carefully to detect "{query}".
+    prompt_str = f"""Please analyze the image and answer the following questions:
+    1. Is there a {query} in the image?
+    2. If yes, describe its appearance and location in the image in detail.
+    3. If no, describe what you see in the image instead.
+    4. On a scale of 1-10, how confident are you in your answer?
 
-TASK: Search for "{query}" in this image with high accuracy.
-
-DETECTION GUIDELINES:
-- Examine all parts of the image thoroughly
-- Look for visual characteristics that match "{query}"
-- Consider different angles, sizes, and lighting conditions
-- Be precise about what you observe
-
-RESPONSE FORMAT:
-If "{query}" is present in the image:
-Provide a clear description of what you see, including:
-- Location in the image
-- Visual details that confirm it's "{query}"
-- Size, color, or other distinguishing features
-
-If "{query}" is NOT present in the image:
-Respond with: NOT_FOUND
-
-Focus entirely on detecting "{query}". Be accurate and specific in your analysis.
-"""
+    Please structure your response as follows:
+    Answer: [YES/NO]
+    Description: [Your detailed description]
+    Confidence: [1-10]"""
 
     try:
         for attempt in range(3):
