@@ -174,7 +174,7 @@ If no detection, respond: NO_DETECTION
                     resp = await client.post(
                         DEEPSEEK_API_URL,
                         files={"file": (Path(pano_path).name, f, "image/jpeg")},
-                        data={"prompt": prompt, "analysis_type": "object_detection"}
+                        data={"prompt": prompt, "analysis_type": "ocr"}
                     )
                 resp.raise_for_status()
                 return resp.json().get("response", "")
