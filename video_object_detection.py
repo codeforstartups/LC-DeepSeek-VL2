@@ -82,7 +82,7 @@ async def detect_object_in_frame(frame_path: str, query: str, frame_second: int)
                     resp = await client.post(
                         DEEPSEEK_API_URL,
                         files={"file": (Path(frame_path).name, f, "image/jpeg")},
-                        data={"prompt": prompt, "analysis_type": "object_detection"}
+                        data={"prompt": prompt_str, "analysis_type": "object_detection"}
                     )
                 resp.raise_for_status()
                 return resp.json().get("response", "")
