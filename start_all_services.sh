@@ -41,6 +41,11 @@ npm install && \
 npm run build && \
 npm run preview\
 "
+  [vidoe_object_detection_deepseekvl2]="\
+source object_detection/bin/activate && \
+pip install -r requirements__object_detection.txt && \
+uvicorn video_object_detection:app --host 0.0.0.0 --port 8005 --reload\
+"
 )
 
 # 3️⃣ Helper to restart one service
