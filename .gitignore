@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+device:
 ffmpeg-7.0.2-amd64-static/
 myenv/
 tarin/
