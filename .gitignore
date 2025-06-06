@@ -4,6 +4,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+ffmpeg-7.0.2-amd64-static/
+myenv/
+tarin/
+test/
+face_rec/
+yolo/ 
+object_detection/
+Precise-thermalPistol-1/
+
+
 # C extensions
 *.so
 
