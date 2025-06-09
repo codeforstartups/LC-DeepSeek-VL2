@@ -14,6 +14,8 @@ import torch
 import gc
 import logging
 from pathlib import Path
+import requests
+import shutil
 
 def setup_logging():
     """Setup detailed logging for training monitoring"""
@@ -196,6 +198,83 @@ def validate_model_file(model_path, min_size_mb=5):
     except Exception as e:
         return False, f"Corrupted file: {str(e)}"
 
+def ensure_valid_pretrained_model(model_name='yolov8n.pt'):
+    """Ensure we have a valid pre-trained model"""
+    print(f"🔍 Validating pre-trained model: {model_name}")
+
+    # Check if model exists and is valid
+    if os.path.exists(model_name):
+        is_valid, message = validate_model_file(model_name, min_size_mb=3)
+        if is_valid:
+            print(f"✅ {message}")
+            return model_name
+        else:
+            print(f"❌ Corrupted model: {message}")
+            print(f"🗑️  Removing corrupted model file...")
+            try:
+                os.remove(model_name)
+            except:
+                pass
+
+    # Download fresh model
+    print(f"⬇️  Downloading fresh {model_name} model...")
+    try:
+        # Use YOLO to download the model - it will handle the download automatically
+        temp_model = YOLO(model_name)
+        del temp_model
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+        # Validate the downloaded model
+        if os.path.exists(model_name):
+            is_valid, message = validate_model_file(model_name, min_size_mb=3)
+            if is_valid:
+                print(f"✅ Successfully downloaded valid model: {message}")
+                return model_name
+            else:
+                raise Exception(f"Downloaded model is still corrupted: {message}")
+        else:
+            raise Exception("Model file not found after download")
+
+    except Exception as e:
+        print(f"❌ Failed to download {model_name}: {e}")
+
+        # Try alternative download method
+        print(f"🔄 Trying alternative download method...")
+        try:
+            import requests
+            import shutil
+
+            model_urls = {
+                'yolov8n.pt': 'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt',
+                'yolov8s.pt': 'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.pt'
+            }
+
+            if model_name in model_urls:
+                url = model_urls[model_name]
+                print(f"⬇️  Downloading from: {url}")
+
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+
+                with open(model_name, 'wb') as f:
+                    shutil.copyfileobj(response.raw, f)
+
+                # Validate downloaded model
+                is_valid, message = validate_model_file(model_name, min_size_mb=3)
+                if is_valid:
+                    print(f"✅ Alternative download successful: {message}")
+                    return model_name
+                else:
+                    raise Exception(f"Alternative download also corrupted: {message}")
+            else:
+                raise Exception(f"No alternative URL for {model_name}")
+
+        except Exception as e2:
+            print(f"❌ Alternative download also failed: {e2}")
+            raise Exception(f"Could not obtain valid {model_name} model")
+
+    return model_name
+
 def cleanup_corrupted_models(model_dir):
     """Remove corrupted model files to prevent issues"""
     weights_dir = os.path.join(model_dir, "weights")
@@ -252,10 +331,18 @@ def train_improved_model():
     logger.info("Setting up data paths...")
     data_yaml = fix_data_yaml()
 
-    # Load pre-trained model
-    print(f"📦 Loading YOLOv8n model...")
-    logger.info("Loading pre-trained YOLOv8n model")
-    model = YOLO('yolov8n.pt')
+    # Ensure we have a valid pre-trained model
+    logger.info("Validating pre-trained model...")
+    try:
+        model_name = ensure_valid_pretrained_model('yolov8n.pt')
+        print(f"📦 Loading validated YOLOv8n model...")
+        logger.info("Loading validated pre-trained YOLOv8n model")
+        model = YOLO(model_name)
+    except Exception as e:
+        error_msg = f"Failed to load valid pre-trained model: {e}"
+        print(f"❌ {error_msg}")
+        logger.error(error_msg)
+        return None, None
 
     # Get training configuration
     config = setup_training_config(gpu_config)
