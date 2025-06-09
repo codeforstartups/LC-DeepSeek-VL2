@@ -437,7 +437,6 @@ __pycache__/
 *.egg-info
 
 # Model weight files
-*.pt
 
 # Visual grounding output
 vg.jpg
