@@ -166,7 +166,6 @@ async def detect_thermal_guns_in_image(
         # Prepare response
         response_data = {
             "request_id": request_id,
-            "image_url": image_url,
             "confidence_threshold": confidence_threshold,
             "summary": {
                 "total_gun_detections": len(detections),
@@ -242,9 +241,9 @@ async def detect_thermal_guns_in_video(
 
         # Process each frame
         logger.info(f"[{request_id}] Running thermal gun detection...")
-        all_detections = []
-        frames_with_guns = []
+        gun_detection_times = []
         total_gun_count = 0
+        detailed_detections = []
 
         for frame_file, second in frame_files:
             frame_path = os.path.join(frame_dir, frame_file)
@@ -252,44 +251,44 @@ async def detect_thermal_guns_in_video(
             # Detect guns in this frame
             detections = detect_guns_in_frame(frame_path, confidence_threshold)
 
-            frame_result = {
-                "second": second,
-                "frame_file": frame_file,
+            if len(detections) > 0:
+                gun_detection_times.append({
+                    "time_seconds": second,
+                    "gun_count": len(detections),
+                    "max_confidence": max([d["confidence"] for d in detections]),
+                    "detections": detections
+                })
+                total_gun_count += len(detections)
+
+            # Store all frame results for detailed analysis if needed
+            detailed_detections.append({
+                "time_seconds": second,
                 "gun_count": len(detections),
                 "detections": detections
-            }
-
-            all_detections.append(frame_result)
-            total_gun_count += len(detections)
-
-            if len(detections) > 0:
-                frames_with_guns.append({
-                    "second": second,
-                    "gun_count": len(detections),
-                    "max_confidence": max([d["confidence"] for d in detections])
-                })
+            })
 
         # Calculate summary
-        frames_with_detections = len(frames_with_guns)
-        detection_rate = (frames_with_detections / len(frame_files)) * 100 if frame_files else 0
+        frames_with_guns = len(gun_detection_times)
+        detection_rate = (frames_with_guns / len(frame_files)) * 100 if frame_files else 0
 
-        logger.info(f"[{request_id}] Detection complete. Found guns in {frames_with_detections}/{len(frame_files)} frames")
+        logger.info(f"[{request_id}] Detection complete. Found guns in {frames_with_guns}/{len(frame_files)} frames")
 
-        # Prepare response
+        # Prepare focused response
         response_data = {
             "request_id": request_id,
-            "video_url": video_url,
-            "video_duration_seconds": round(duration, 2),
-            "total_frames_analyzed": len(frame_files),
             "confidence_threshold": confidence_threshold,
-            "summary": {
-                "total_gun_detections": total_gun_count,
-                "frames_with_guns": frames_with_detections,
-                "detection_rate_percent": round(detection_rate, 1),
-                "seconds_with_guns": [f["second"] for f in frames_with_guns]
+            "video_info": {
+                "duration_seconds": round(duration, 2),
+                "total_frames_analyzed": len(frame_files)
             },
-            "frames_with_guns": frames_with_guns,
-            "all_frame_results": all_detections
+            "gun_detection_summary": {
+                "guns_found": len(gun_detection_times) > 0,
+                "total_gun_detections": total_gun_count,
+                "frames_with_guns": frames_with_guns,
+                "detection_rate_percent": round(detection_rate, 1),
+                "detection_times": [t["time_seconds"] for t in gun_detection_times]
+            },
+            "gun_detection_details": gun_detection_times
         }
 
         return response_data
