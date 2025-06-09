@@ -1,0 +1,12 @@
+names:
+- Gun
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: precise-thermalpistol
+  url: https://universe.roboflow.com/gun-detection-using-thermal-camera/precise-thermalpistol/dataset/1
+  version: 1
+  workspace: gun-detection-using-thermal-camera
+test: C:\Users\lenovo\Desktop\LC-DeepSeek-VL2\roboflow_download\test\images
+train: C:\Users\lenovo\Desktop\LC-DeepSeek-VL2\roboflow_download\train\images
+val: C:\Users\lenovo\Desktop\LC-DeepSeek-VL2\roboflow_download\valid\images

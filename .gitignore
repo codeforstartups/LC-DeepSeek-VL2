@@ -10,7 +10,7 @@ myenv/
 tarin/
 test/
 face_rec/
-yolo/ 
+yolo/
 object_detection/
 Precise-thermalPistol-1/
 
@@ -442,4 +442,3 @@ __pycache__/
 # Visual grounding output
 vg.jpg
 test.mp4
-
