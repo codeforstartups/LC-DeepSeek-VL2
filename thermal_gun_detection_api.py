@@ -84,17 +84,19 @@ def detect_guns_in_frame(frame_path: str, confidence_threshold: float = 0.25):
                 x1, y1, x2, y2 = boxes.xyxy[i].cpu().numpy()
                 confidence = float(boxes.conf[i].cpu().numpy())
 
-                detection = {
-                    "bbox": {
-                        "x1": float(x1),
-                        "y1": float(y1),
-                        "x2": float(x2),
-                        "y2": float(y2)
-                    },
-                    "confidence": round(confidence, 3),
-                    "class": "thermal_gun"
-                }
-                detections.append(detection)
+                # Only return detections with confidence >= 70%
+                if confidence >= 0.70:
+                    detection = {
+                        "bbox": {
+                            "x1": float(x1),
+                            "y1": float(y1),
+                            "x2": float(x2),
+                            "y2": float(y2)
+                        },
+                        "confidence": round(confidence, 3),
+                        "class": "thermal_gun"
+                    }
+                    detections.append(detection)
 
         return detections
 
