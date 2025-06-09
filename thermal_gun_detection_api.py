@@ -102,14 +102,14 @@ def detect_guns_in_frame(frame_path: str, confidence_threshold: float = 0.25):
         logger.error(f"Error detecting guns in frame {frame_path}: {e}")
         return []
 
-def cleanup_files(request_id: str, temp_video_path: str = None, work_dir: str = None):
+def cleanup_files(request_id: str, temp_file_path: str = None, work_dir: str = None):
     """Clean up temporary files"""
     try:
-        if temp_video_path and os.path.exists(temp_video_path):
-            os.remove(temp_video_path)
-            logger.info(f"[{request_id}] Cleaned up video file")
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+            logger.info(f"[{request_id}] Cleaned up temp file")
     except Exception as e:
-        logger.warning(f"[{request_id}] Failed to remove video file: {e}")
+        logger.warning(f"[{request_id}] Failed to remove temp file: {e}")
 
     try:
         if work_dir and os.path.exists(work_dir):
@@ -117,6 +117,77 @@ def cleanup_files(request_id: str, temp_video_path: str = None, work_dir: str = 
             logger.info(f"[{request_id}] Cleaned up work directory")
     except Exception as e:
         logger.warning(f"[{request_id}] Failed to remove work directory: {e}")
+
+@app.post("/detect_thermal_guns_image/")
+async def detect_thermal_guns_in_image(
+    image_url: str = Body(..., embed=True),
+    confidence_threshold: float = Body(0.25, embed=True)
+):
+    """Detect thermal guns in a single image using trained YOLO model"""
+
+    if model is None:
+        raise HTTPException(500, "Model not loaded")
+
+    # Generate unique request ID
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[{request_id}] Starting thermal gun detection in image: {image_url}")
+
+    # Validate image URL
+    parsed_url = urlparse(image_url)
+    ext = Path(parsed_url.path).suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}:
+        raise HTTPException(400, f"Unsupported image format: '{ext}'. Supported: .jpg, .jpeg, .png, .bmp, .tiff, .webp")
+
+    temp_image_path = None
+
+    try:
+        # Create temporary image file
+        temp_image_fd, temp_image_path = tempfile.mkstemp(suffix=ext, prefix=f"image_{request_id}_")
+
+        try:
+            # Download image
+            logger.info(f"[{request_id}] Downloading image...")
+            r = requests.get(image_url, stream=True, timeout=30)
+            r.raise_for_status()
+
+            with os.fdopen(temp_image_fd, 'wb') as temp_file:
+                for chunk in r.iter_content(8192):
+                    temp_file.write(chunk)
+
+        except Exception as e:
+            raise HTTPException(400, f"Failed to download image: {str(e)}")
+
+        logger.info(f"[{request_id}] Image downloaded successfully")
+
+        # Run detection on the image
+        logger.info(f"[{request_id}] Running thermal gun detection...")
+        detections = detect_guns_in_frame(temp_image_path, confidence_threshold)
+
+        # Prepare response
+        response_data = {
+            "request_id": request_id,
+            "image_url": image_url,
+            "confidence_threshold": confidence_threshold,
+            "summary": {
+                "total_gun_detections": len(detections),
+                "guns_found": len(detections) > 0
+            },
+            "detections": detections
+        }
+
+        logger.info(f"[{request_id}] Detection complete. Found {len(detections)} guns")
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{request_id}] Error during processing: {e}")
+        raise HTTPException(500, f"Detection failed: {str(e)}")
+
+    finally:
+        # Cleanup
+        logger.info(f"[{request_id}] Cleaning up...")
+        cleanup_files(request_id, temp_image_path)
 
 @app.post("/detect_thermal_guns/")
 async def detect_thermal_guns_in_video(
