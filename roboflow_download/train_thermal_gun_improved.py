@@ -121,17 +121,19 @@ def setup_training_config(gpu_config):
 
         # Performance settings
         'val': True,
-        'save_period': 3,    # Save more frequently
+        'save_period': -1,   # Disable frequent epoch saves to prevent corruption
+        'save': True,        # Only save best and last models
+        'save_txt': False,   # Don't save prediction txt files
         'plots': True,
         'verbose': True,
-        'workers': 8,        # More workers for GPU
+        'workers': 4,        # Reduced workers to prevent memory issues
         'rect': True,        # Rectangular training for efficiency
         'overlap_mask': True, # Better mask handling
         'mask_ratio': 4,     # Mask downsample ratio
 
         # Memory optimization
         'amp': True,         # Automatic Mixed Precision for GPU
-        'fraction': 0.9,     # GPU memory fraction to use
+        'fraction': 0.8,     # Reduced GPU memory fraction for stability
     }
 
 def fix_data_yaml():
@@ -172,6 +174,59 @@ def monitor_system_resources():
         gpu_used = torch.cuda.memory_allocated(0) / 1024**3
         gpu_reserved = torch.cuda.memory_reserved(0) / 1024**3
         print(f"   GPU Memory: {gpu_used:.1f}GB used, {gpu_reserved:.1f}GB reserved, {gpu_memory:.1f}GB total")
+
+def validate_model_file(model_path, min_size_mb=5):
+    """Validate that a model file is not corrupted"""
+    if not os.path.exists(model_path):
+        return False, "File does not exist"
+
+    try:
+        # Check file size
+        file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+        if file_size < min_size_mb:
+            return False, f"File too small ({file_size:.1f}MB < {min_size_mb}MB)"
+
+        # Try to load the model to verify it's not corrupted
+        test_model = YOLO(model_path)
+        del test_model  # Clean up
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+        return True, f"Valid model file ({file_size:.1f}MB)"
+
+    except Exception as e:
+        return False, f"Corrupted file: {str(e)}"
+
+def cleanup_corrupted_models(model_dir):
+    """Remove corrupted model files to prevent issues"""
+    weights_dir = os.path.join(model_dir, "weights")
+    if not os.path.exists(weights_dir):
+        return
+
+    model_files = []
+    for file in os.listdir(weights_dir):
+        if file.endswith('.pt'):
+            model_files.append(os.path.join(weights_dir, file))
+
+    print(f"🧹 Checking {len(model_files)} model files for corruption...")
+
+    corrupted_files = []
+    for model_path in model_files:
+        is_valid, message = validate_model_file(model_path)
+        if not is_valid:
+            corrupted_files.append(model_path)
+            print(f"   ❌ {os.path.basename(model_path)}: {message}")
+            try:
+                os.remove(model_path)
+                print(f"   🗑️  Removed corrupted file: {os.path.basename(model_path)}")
+            except:
+                print(f"   ⚠️  Could not remove: {os.path.basename(model_path)}")
+        else:
+            print(f"   ✅ {os.path.basename(model_path)}: {message}")
+
+    if corrupted_files:
+        print(f"🧹 Removed {len(corrupted_files)} corrupted model files")
+    else:
+        print(f"✅ All model files are valid")
 
 def train_improved_model():
     """Train thermal gun detection model with enhanced GPU optimization"""
@@ -274,6 +329,8 @@ def train_improved_model():
             name='ThermalPistol_v2_improved',
             exist_ok=True,
             save_period=config['save_period'],
+            save=config['save'],
+            save_txt=config['save_txt'],
             plots=config['plots'],
             verbose=config['verbose'],
             val=config['val']
@@ -304,8 +361,41 @@ def train_improved_model():
             print(f"   - Results extraction failed: {e}")
             logger.warning(f"Could not extract final metrics: {e}")
 
-        model_path = "../MyTrainedModels/ThermalPistol_v2_improved/weights/best.pt"
-        print(f"🎯 Best model saved to: {model_path}")
+        # Clean up corrupted models and validate saved models
+        model_dir = "../MyTrainedModels/ThermalPistol_v2_improved"
+        print(f"\n🔍 Validating saved models...")
+        cleanup_corrupted_models(model_dir)
+
+        # Find the best valid model
+        weights_dir = os.path.join(model_dir, "weights")
+        model_path = None
+
+        # Check for best.pt first
+        best_path = os.path.join(weights_dir, "best.pt")
+        if os.path.exists(best_path):
+            is_valid, message = validate_model_file(best_path)
+            if is_valid:
+                model_path = best_path
+                print(f"✅ Valid best.pt model found: {message}")
+            else:
+                print(f"❌ best.pt corrupted: {message}")
+
+        # If best.pt not valid, try last.pt
+        if not model_path:
+            last_path = os.path.join(weights_dir, "last.pt")
+            if os.path.exists(last_path):
+                is_valid, message = validate_model_file(last_path)
+                if is_valid:
+                    model_path = last_path
+                    print(f"✅ Using valid last.pt model: {message}")
+                else:
+                    print(f"❌ last.pt also corrupted: {message}")
+
+        if model_path:
+            print(f"🎯 Final model saved to: {model_path}")
+        else:
+            print(f"❌ No valid model files found! Training may have failed to save properly.")
+            model_path = best_path  # Return the path anyway for debugging
 
         # Final GPU memory cleanup
         if torch.cuda.is_available():
@@ -365,6 +455,12 @@ if __name__ == "__main__":
     print("=" * 70)
 
     try:
+        # Clean up any existing corrupted models first
+        existing_model_dir = "../MyTrainedModels/ThermalPistol_v2_improved"
+        if os.path.exists(existing_model_dir):
+            print("🧹 Cleaning up existing model directory...")
+            cleanup_corrupted_models(existing_model_dir)
+
         # Train the enhanced model
         model_path, results = train_improved_model()
 

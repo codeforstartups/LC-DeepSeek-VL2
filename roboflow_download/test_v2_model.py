@@ -16,16 +16,21 @@ def test_v2_model():
     print("🔍 Testing Enhanced V2 Thermal Gun Detection Model")
     print("=" * 60)
 
-    # Model paths
-    v2_model_path = "../MyTrainedModels/ThermalPistol_v2_improved/weights/best.pt"
+    # Model paths - using epoch72.pt as it's the best model (best.pt is corrupted)
+    v2_model_path = "../MyTrainedModels/ThermalPistol_v2_improved/weights/epoch72.pt"
+    v2_model_path_alt = "../MyTrainedModels/ThermalPistol_v2_improved/weights/last.pt"
     v1_model_path = "../MyTrainedModels/ThermalPistol_v1/weights/best.pt"
 
-    # Check if models exist
-    if not os.path.exists(v2_model_path):
+    # Check if models exist (try epoch72 first, then last.pt as backup)
+    if os.path.exists(v2_model_path):
+        print(f"✅ V2 model found (epoch 72 - best model): {v2_model_path}")
+    elif os.path.exists(v2_model_path_alt):
+        v2_model_path = v2_model_path_alt
+        print(f"✅ V2 model found (last epoch): {v2_model_path}")
+    else:
         print(f"❌ V2 model not found at: {v2_model_path}")
+        print(f"❌ V2 model not found at: {v2_model_path_alt}")
         return
-
-    print(f"✅ V2 model found: {v2_model_path}")
 
     # Load V2 model
     print("📦 Loading V2 model...")
