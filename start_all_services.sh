@@ -25,13 +25,10 @@ uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000\
 source venv/bin/activate && \
 pip install -r requirements_face_recognition.txt && \
 uvicorn face_recognition:app --host 0.0.0.0 --port 8004 --reload\
-
 "
   [metal_detection]="\
 source metal_detection/bin/activate && \
 uvicorn thermal_gun_detection_api:app --host 0.0.0.0 --port 8006\
-"
-
 "
   [deepseekvl2_models]="\
 chmod +x start-ollama.sh && \
