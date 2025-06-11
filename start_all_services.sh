@@ -25,6 +25,13 @@ uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000\
 source venv/bin/activate && \
 pip install -r requirements_face_recognition.txt && \
 uvicorn face_recognition:app --host 0.0.0.0 --port 8004 --reload\
+
+"
+  [metal_detection]="\
+source metal_detection/bin/activate && \
+uvicorn thermal_gun_detection_api:app --host 0.0.0.0 --port 8006\
+"
+
 "
   [deepseekvl2_models]="\
 chmod +x start-ollama.sh && \
@@ -46,6 +53,7 @@ source object_detection/bin/activate && \
 pip install -r requirements__object_detection.txt && \
 uvicorn video_object_detection:app --host 0.0.0.0 --port 8005 --reload\
 "
+
 )
 
 # 3️⃣ Helper to restart one service
