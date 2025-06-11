@@ -37,7 +37,7 @@ docker compose -f ollama-compose.yml up\
   [vision-backend]="\
 cd .. && cd langchain-frontend-vision/backend && \
 pip install -r requirements.txt && \
-uvicorn main:app --reload --host 0.0.0.0 --port 3000\
+uvicorn main:app --reload  --host 0.0.0.0 --port 3000 --workers 4\
 "
   [vision-frontend]="\
 cd .. && cd langchain-frontend-vision && \
