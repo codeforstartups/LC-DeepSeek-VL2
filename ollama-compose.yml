@@ -11,7 +11,10 @@ services:
       - ./start-ollama.sh:/start-ollama.sh
     environment:
       OLLAMA_HOST: "0.0.0.0:11434"
-    runtime: nvidia
+      OLLAMA_NUM_GPU: 0              # Force CPU usage
+      OLLAMA_NUM_GPU_LAYERS: 0       # Use CPU for inference
+      OLLAMA_KEEP_ALIVE: "5m"        # Keep model loaded for 5 minutes
+    # runtime: nvidia               # Commented out - using CPU instead
     entrypoint: ["/start-ollama.sh"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434"]
