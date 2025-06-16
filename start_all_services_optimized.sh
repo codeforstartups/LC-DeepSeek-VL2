@@ -64,12 +64,12 @@ echo '🔍 Starting YOLO API on CPU...' && \
 uvicorn yolo_api:app --host 0.0.0.0 --port 8002\
 "
 
-  [face_recognition_cpu]="\
+  [face_recognition_gpu]="\
 source venv_face_cpu/bin/activate && \
-export CUDA_VISIBLE_DEVICES=\"\" && \
-export TF_FORCE_GPU_ALLOW_GROWTH=\"false\" && \
+export CUDA_VISIBLE_DEVICES=\"0\" && \
+export TF_FORCE_GPU_ALLOW_GROWTH=\"true\" && \
 export TF_CPP_MIN_LOG_LEVEL=\"2\" && \
-echo '👤 Starting Face Recognition on CPU...' && \
+echo '👤 Starting Face Recognition on GPU T1...' && \
 uvicorn face_recognition:app --host 0.0.0.0 --port 8004\
 "
 
@@ -89,13 +89,13 @@ echo '🎯 Starting Object Detection on CPU...' && \
 uvicorn video_object_detection:app --host 0.0.0.0 --port 8005\
 "
 
-  # 🚀 GPU-BASED SERVICE (T1 GPU Only)
+  # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
   [medical_imaging_gpu]="\
 source venv_medical_gpu/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"0\" && \
 export PYTORCH_CUDA_ALLOC_CONF=\"max_split_size_mb:512\" && \
 echo '🏥 Starting Medical Imaging on GPU T1...' && \
-uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 \
+uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 --workers 1\
 "
 
   # 🐳 DOCKER SERVICES (Host Memory)
@@ -162,8 +162,10 @@ echo "📊 Memory Strategy: GPU=Medical Only, CPU=Everything Else"
 echo ""
 
 # Start GPU service first (medical imaging)
-echo "🏥 Phase 1: Starting GPU-based service..."
+echo "🏥 Phase 1: Starting GPU-based services..."
 restart_service "medical_imaging_gpu" "${SERVICES[medical_imaging_gpu]}"
+sleep 3
+restart_service "face_recognition_gpu" "${SERVICES[face_recognition_gpu]}"
 sleep 3
 
 # Start CPU-based core services
@@ -171,8 +173,6 @@ echo "🖥️  Phase 2: Starting CPU-based core services..."
 restart_service "video_api_cpu" "${SERVICES[video_api_cpu]}"
 sleep 2
 restart_service "yolo_api_cpu" "${SERVICES[yolo_api_cpu]}"
-sleep 2
-restart_service "face_recognition_cpu" "${SERVICES[face_recognition_cpu]}"
 sleep 2
 
 # Start specialized CPU services
@@ -194,13 +194,15 @@ echo ""
 echo "✅ All services launched in optimized configuration!"
 echo ""
 echo "📊 Expected GPU Memory Usage:"
-echo "  🏥 Medical Imaging (GPU): ~6-7GB (down from 14GB!)"
+echo "  🏥 Medical Imaging (GPU): ~6-7GB"
+echo "  👤 Face Recognition (GPU): ~1-2GB"
 echo "  🖥️  All other services (CPU): Host RAM"
+echo "  📊 Total GPU Usage: ~8-9GB (52-58% of 15.4GB)"
 echo ""
-echo "🔍 Monitor services:"
+echo "�� Monitor services:"
 echo "  screen -list                    # List all services"
 echo "  screen -r medical_imaging_gpu   # Attach to GPU service"
-echo "  screen -r face_recognition_cpu  # Attach to face recognition"
+echo "  screen -r face_recognition_gpu  # Attach to face recognition"
 echo "  nvidia-smi                      # Check GPU usage"
 echo "  free -h                         # Check RAM usage"
 echo ""
@@ -209,9 +211,9 @@ echo "  Medical Imaging (GPU): http://localhost:8000"
 echo "  Video API (CPU):       http://localhost:8001"
 echo "  YOLO API (CPU):        http://localhost:8002"
 echo "  Vision Backend (CPU):  http://localhost:3000"
-echo "  Face Recognition (CPU): http://localhost:8004"
+echo "  Face Recognition (GPU): http://localhost:8004"
 echo "  Object Detection (CPU): http://localhost:8005"
 echo "  Thermal Gun (CPU):     http://localhost:8006"
 echo "  Ollama (CPU):          http://localhost:11434"
 echo ""
-echo "🎯 Optimization Complete! GPU memory should be ~45% instead of 92%"
+echo "🎯 Optimization Complete! GPU memory should be ~55% with Medical+Face on GPU"
