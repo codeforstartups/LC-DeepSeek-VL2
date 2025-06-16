@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from roboflow import Roboflow  # Correct import; RoboflowException is not exposed at top level
 from ultralytics import YOLO
+import torch
 
 # ------------------------------------------------------------------
 # Paste your private API key here, or set it as an environment variable:
@@ -42,12 +43,17 @@ if not os.path.isfile(data_yaml):
 
 # Step 4: Train the model on the new dataset
 print(f"[{datetime.now()}] Starting training (50 epochs @ 640×640)...")
+
+# Check device from environment variable
+device = os.getenv("TORCH_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu")
+print(f"[{datetime.now()}] Using device: {device}")
+
 results = model.train(
     data=data_yaml,       # Path to the downloaded data.yaml
     epochs=50,            # Number of epochs (monitor metrics for early stopping)
     imgsz=640,            # Image size 640×640
     batch=8,
-    device="cuda:0",             # Batch size (adjust if GPU OOM occurs)
+    device=device,        # Use environment-configured device
     project='MyTrainedModels',
     name='ThermalPistol_v1',
     exist_ok=True         # Overwrite existing folder if present

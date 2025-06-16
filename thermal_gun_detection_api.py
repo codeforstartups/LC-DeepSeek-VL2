@@ -311,10 +311,13 @@ async def health_check():
     """Health check endpoint"""
     global model
 
+    # Respect environment variable for device
+    device = os.getenv("TORCH_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "device": device,
         "model_info": "Thermal Gun Detection YOLOv8" if model else "No model loaded"
     }
 

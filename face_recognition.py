@@ -29,12 +29,20 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────────────
 import tensorflow as tf
 
-gpus = tf.config.experimental.list_physical_devices("GPU")
-if gpus:
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-    # Optionally restrict to GPU:0
-    # tf.config.set_visible_devices(gpus[0], "GPU")
+# Check if GPU usage is disabled via environment variable
+if os.getenv("TF_FORCE_GPU_ALLOW_GROWTH") == "false":
+    # Force CPU-only execution
+    tf.config.set_visible_devices([], 'GPU')
+    logger.info("TensorFlow forced to CPU-only mode")
+else:
+    # Enable GPU memory growth if available
+    gpus = tf.config.experimental.list_physical_devices("GPU")
+    if gpus:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logger.info(f"TensorFlow GPU memory growth enabled for {len(gpus)} GPUs")
+    else:
+        logger.info("No GPUs detected, running on CPU")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1. FastAPI app initialization with CORS

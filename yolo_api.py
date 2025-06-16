@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 # Device setup
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+device = os.getenv("TORCH_DEVICE", "cuda:0" if torch.cuda.is_available() else "cpu")
 logger.info(f"Using device: {device}")
 if not device.startswith("cuda"):
-    logger.warning("CUDA not detected—running on CPU")
+    logger.warning("Running on CPU (CUDA disabled or unavailable)")
 
 # Load YOLOv8 model once
 logger.info("Loading YOLOv8 model...")
