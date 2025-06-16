@@ -114,7 +114,7 @@ export CUDA_VISIBLE_DEVICES=\"\" && \
 echo '🔗 Starting Vision Backend on CPU...' && \
 source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate && \
 pip install -r requirements.txt && \
-uvicorn main:app --reload --host 0.0.0.0 --port 3000 --workers 4\
+uvicorn main:app --host 0.0.0.0 --port 3000 --workers 4\
 "
 
   [vision_frontend]="\
