@@ -53,7 +53,7 @@ export CUDA_VISIBLE_DEVICES=\"\" && \
 export DEEPSEEK_API_URL=\"http://localhost:8000/analyze/\" && \
 export AWS_S3_BUCKET=vision-app-prod-uploads && \
 echo '📹 Starting Video API on CPU...' && \
-uvicorn video_api:app --host 0.0.0.0 --port 8001 --workers 2\
+uvicorn video_api:app --host 0.0.0.0 --port 8001\
 "
 
   [yolo_api_cpu]="\
@@ -61,7 +61,7 @@ source venv_yolo_cpu/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 export TORCH_DEVICE=\"cpu\" && \
 echo '🔍 Starting YOLO API on CPU...' && \
-uvicorn yolo_api:app --host 0.0.0.0 --port 8002 --workers 2\
+uvicorn yolo_api:app --host 0.0.0.0 --port 8002\
 "
 
   [face_recognition_cpu]="\
@@ -70,7 +70,7 @@ export CUDA_VISIBLE_DEVICES=\"\" && \
 export TF_FORCE_GPU_ALLOW_GROWTH=\"false\" && \
 export TF_CPP_MIN_LOG_LEVEL=\"2\" && \
 echo '👤 Starting Face Recognition on CPU...' && \
-uvicorn face_recognition:app --host 0.0.0.0 --port 8004 --workers 1\
+uvicorn face_recognition:app --host 0.0.0.0 --port 8004\
 "
 
   [thermal_gun_cpu]="\
@@ -78,7 +78,7 @@ source venv_metal_cpu/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 export TORCH_DEVICE=\"cpu\" && \
 echo '🔫 Starting Thermal Gun Detection on CPU...' && \
-uvicorn thermal_gun_detection_api:app --host 0.0.0.0 --port 8006 --workers 1\
+uvicorn thermal_gun_detection_api:app --host 0.0.0.0 --port 8006\
 "
 
   [object_detection_cpu]="\
@@ -86,7 +86,7 @@ source venv_object_detection_cpu/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 export DEEPSEEK_API_URL=\"http://localhost:8000/analyze/\" && \
 echo '🎯 Starting Object Detection on CPU...' && \
-uvicorn video_object_detection:app --host 0.0.0.0 --port 8005 --workers 1\
+uvicorn video_object_detection:app --host 0.0.0.0 --port 8005\
 "
 
   # 🚀 GPU-BASED SERVICE (T1 GPU Only)
@@ -95,7 +95,7 @@ source venv_medical_gpu/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"0\" && \
 export PYTORCH_CUDA_ALLOC_CONF=\"max_split_size_mb:512\" && \
 echo '🏥 Starting Medical Imaging on GPU T1...' && \
-uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 --workers 1\
+uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 \
 "
 
   # 🐳 DOCKER SERVICES (Host Memory)
@@ -114,7 +114,7 @@ export CUDA_VISIBLE_DEVICES=\"\" && \
 echo '🔗 Starting Vision Backend on CPU...' && \
 source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate && \
 pip install -r requirements.txt && \
-uvicorn main:app --reload --host 0.0.0.0 --port 3000 --workers 2\
+uvicorn main:app --reload --host 0.0.0.0 --port 3000 --workers 4\
 "
 
   [vision_frontend]="\
