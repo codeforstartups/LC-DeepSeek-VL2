@@ -40,6 +40,7 @@ create_venv_if_missing "venv_medical_gpu" "requirements.txt"
 create_venv_if_missing "venv_face_cpu" "requirements_face_recognition.txt"
 create_venv_if_missing "venv_metal_cpu" "requirements_thermal_gun_api.txt"
 create_venv_if_missing "venv_object_detection_cpu" "requirements__object_detection.txt"
+create_venv_if_missing "venv_translation_cpu" "requirements_translation.txt"
 
 echo "✅ All virtual environments ready!"
 
@@ -87,6 +88,13 @@ export CUDA_VISIBLE_DEVICES=\"\" && \
 export DEEPSEEK_API_URL=\"http://localhost:8000/analyze/\" && \
 echo '🎯 Starting Object Detection on CPU...' && \
 uvicorn video_object_detection:app --host 0.0.0.0 --port 8005\
+"
+
+  [translation_api_cpu]="\
+source venv_translation_cpu/bin/activate && \
+export CUDA_VISIBLE_DEVICES=\"\" && \
+echo '🗣️  Starting Translation API on CPU...' && \
+uvicorn translation_api:app --host 0.0.0.0 --port 8007\
 "
 
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
@@ -181,6 +189,8 @@ restart_service "thermal_gun_cpu" "${SERVICES[thermal_gun_cpu]}"
 sleep 2
 restart_service "object_detection_cpu" "${SERVICES[object_detection_cpu]}"
 sleep 2
+restart_service "translation_api_cpu" "${SERVICES[translation_api_cpu]}"
+sleep 2
 
 # Start support services
 echo "🐳 Phase 4: Starting support services..."
@@ -199,7 +209,7 @@ echo "  👤 Face Recognition (GPU): ~1-2GB"
 echo "  🖥️  All other services (CPU): Host RAM"
 echo "  📊 Total GPU Usage: ~8-9GB (52-58% of 15.4GB)"
 echo ""
-echo "�� Monitor services:"
+echo "🎯 Monitor services:"
 echo "  screen -list                    # List all services"
 echo "  screen -r medical_imaging_gpu   # Attach to GPU service"
 echo "  screen -r face_recognition_gpu  # Attach to face recognition"
@@ -214,6 +224,7 @@ echo "  Vision Backend (CPU):  http://localhost:3000"
 echo "  Face Recognition (GPU): http://localhost:8004"
 echo "  Object Detection (CPU): http://localhost:8005"
 echo "  Thermal Gun (CPU):     http://localhost:8006"
+echo "  Translation API (CPU): http://localhost:8007"
 echo "  Ollama (CPU):          http://localhost:11434"
 echo ""
 echo "🎯 Optimization Complete! GPU memory should be ~55% with Medical+Face on GPU"
