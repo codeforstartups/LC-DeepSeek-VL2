@@ -108,9 +108,9 @@ uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
   # 🐳 DOCKER SERVICES (Host Memory)
   [docker_stack]="\
 echo '🐳 Starting Docker stack (Ollama, Postgres, Qdrant)...' && \
-docker compose -f ollama-compose.yml up -d && \
+docker-compose -f ollama-compose.yml up -d && \
 echo '⌛ Waiting for all Docker services to be healthy...' && \
-while ! (docker inspect --format='{{.State.Health.Status}}' postgres-db | grep -q 'healthy' && docker inspect --format='{{.State.Health.Status}}' qdrant-db | grep -q 'healthy'); do \
+while ! (docker inspect --format='{{.State.Health.Status}}' postgres-db 2>/dev/null | grep -q 'healthy' && docker inspect --format='{{.State.Health.Status}}' qdrant-db 2>/dev/null | grep -q 'healthy'); do \
     echo '   - Waiting for databases...'; \
     sleep 5; \
 done && \
@@ -160,7 +160,7 @@ restart_service() {
 
     # Start fresh detached screen with logging
     echo "▶️  Starting service: $name"
-    screen -dmS "$name" bash -lc "
+    screen -dmS "$name" bash -c "
         echo '🚀 Service $name starting at \$(date)...'
         $cmd
     "
