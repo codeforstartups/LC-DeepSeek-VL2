@@ -41,6 +41,7 @@ create_venv_if_missing "venv_face_cpu" "requirements_face_recognition.txt"
 create_venv_if_missing "venv_metal_cpu" "requirements_thermal_gun_api.txt"
 create_venv_if_missing "venv_object_detection_cpu" "requirements__object_detection.txt"
 create_venv_if_missing "venv_translation_cpu" "requirements_translation.txt"
+create_venv_if_missing "venv_vanna_api" "requirements_vanna_api.txt"
 
 echo "✅ All virtual environments ready!"
 
@@ -97,6 +98,25 @@ echo '🗣️  Starting Translation API on CPU...' && \
 uvicorn translation_api:app --host 0.0.0.0 --port 8007\
 "
 
+  [vanna_api_cpu]="\
+source venv_vanna_api/bin/activate && \
+export CUDA_VISIBLE_DEVICES=\"\" && \
+echo '🧠 Starting Vanna Text-to-SQL API on CPU...' && \
+uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
+"
+
+  # 🐳 DOCKER SERVICES (Host Memory)
+  [docker_stack]="\
+echo '🐳 Starting Docker stack (Ollama, Postgres, Qdrant)...' && \
+docker compose -f ollama-compose.yml up -d && \
+echo '⌛ Waiting for all Docker services to be healthy...' && \
+while ! (docker inspect --format='{{.State.Health.Status}}' postgres-db | grep -q 'healthy' && docker inspect --format='{{.State.Health.Status}}' qdrant-db | grep -q 'healthy'); do \
+    echo '   - Waiting for databases...'; \
+    sleep 5; \
+done && \
+echo '✅ All Docker services are healthy and ready!'\
+"
+
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
   [medical_imaging_gpu]="\
 source venv_medical_gpu/bin/activate && \
@@ -104,15 +124,6 @@ export CUDA_VISIBLE_DEVICES=\"0\" && \
 export PYTORCH_CUDA_ALLOC_CONF=\"max_split_size_mb:512\" && \
 echo '🏥 Starting Medical Imaging on GPU T1...' && \
 uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 --workers 1\
-"
-
-  # 🐳 DOCKER SERVICES (Host Memory)
-  [ollama_models_cpu]="\
-export OLLAMA_NUM_GPU=0 && \
-export OLLAMA_HOST=\"0.0.0.0:11434\" && \
-echo '🤖 Starting Ollama Models on CPU...' && \
-chmod +x start-ollama.sh && \
-docker compose -f ollama-compose.yml up\
 "
 
   # 🌐 FRONTEND/BACKEND (Host Memory)
@@ -194,8 +205,14 @@ sleep 2
 
 # Start support services
 echo "🐳 Phase 4: Starting support services..."
-restart_service "ollama_models_cpu" "${SERVICES[ollama_models_cpu]}"
+restart_service "docker_stack" "${SERVICES[docker_stack]}"
 sleep 3
+
+# Start Vanna API only after the Docker stack is confirmed healthy
+echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
+restart_service "vanna_api_cpu" "${SERVICES[vanna_api_cpu]}"
+sleep 2
+
 restart_service "vision_backend" "${SERVICES[vision_backend]}"
 sleep 2
 restart_service "vision_frontend" "${SERVICES[vision_frontend]}"
@@ -225,6 +242,7 @@ echo "  Face Recognition (GPU): http://localhost:8004"
 echo "  Object Detection (CPU): http://localhost:8005"
 echo "  Thermal Gun (CPU):     http://localhost:8006"
 echo "  Translation API (CPU): http://localhost:8007"
+echo "  Vanna API (CPU):       http://localhost:8008"
 echo "  Ollama (CPU):          http://localhost:11434"
 echo ""
 echo "🎯 Optimization Complete! GPU memory should be ~55% with Medical+Face on GPU"

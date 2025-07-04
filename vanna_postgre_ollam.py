@@ -20,16 +20,16 @@ class MyVanna(Qdrant_VectorStore, Ollama):
 # Your PostgreSQL connection details
 POSTGRES_CONFIG = {
     "host": "localhost",  # Or your DB host
-    "dbname": "vyspr_dev",
-    "user": "vyspr_user",
-    "password": "vyspr_password",
+    "dbname": "langchain_dev",
+    "user": "langchain_user",
+    "password": "langchain_password",
     "port": "5432"
 }
 
 # Your Ollama and Qdrant configuration
 VANNA_CONFIG = {
     "client": QdrantClient(url="http://localhost:6333"),
-    "collection_name": "vanna-postgres-vyspr-dev",
+    "collection_name": "vanna-postgres-langchain-dev",
     "model": "deepseek-r1:1.5b",
     "base_url": "http://13.59.72.219:11434"
 }
