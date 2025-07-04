@@ -1,4 +1,4 @@
 fastapi
 uvicorn[standard]
 pandas
-"vanna[ollama,qdrant,postgres]"
+vanna[ollama,qdrant,postgres]
