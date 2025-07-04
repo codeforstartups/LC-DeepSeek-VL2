@@ -67,12 +67,15 @@ async def startup_event():
 
     # --- Automated Training ---
     # Ensures Vanna is trained on the schema and has our custom examples.
-    # This logic is idempotent and will only add data if it's missing.
     training_data = vn.get_training_data()
 
-    # 1. Train on database schema (DDL)
-    if training_data[training_data['training_data_type'] == 'ddl'].empty:
-        print("⏳ No DDL training data found. Training on the entire database schema...")
+    # If the training data is empty, it's the first run for this collection.
+    # We need to train it on the DDL and our custom SQL examples.
+    if training_data.empty:
+        print("⏳ No training data found. Performing initial training...")
+
+        # 1. Train on database schema (DDL)
+        print("   - Training on database schema (DDL)...")
         df_information_schema = vn.run_sql(
             "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = 'public'"
         )
@@ -80,19 +83,12 @@ async def startup_event():
             columns_ddl = [f"    \"{row['column_name']}\" {row['data_type'].upper()}" for _, row in group.iterrows()]
             ddl_string = f"CREATE TABLE public.\"{table_name}\" (\n" + ",\n".join(columns_ddl) + "\n);"
             vn.train(ddl=ddl_string)
-        print("✅ DDL training complete.")
-    else:
-        print("✅ DDL training data found.")
+        print("   ✅ DDL training complete.")
 
-    # 2. Add specific Question-SQL pairs for guidance
-    sql_training_data = training_data[training_data['training_data_type'] == 'sql']
-    sentinel_question = "How many users are there?"
-
-    if sql_training_data[sql_training_data['question'] == sentinel_question].empty:
-        print(f"💡 Sentinel question '{sentinel_question}' not found. Adding custom question-SQL training pairs...")
-        # NOTE: Replace 'users' with your actual user table name if different.
+        # 2. Add specific Question-SQL pairs for guidance
+        print("   - Adding custom question-SQL training pairs...")
         vn.train(
-            question=sentinel_question,
+            question="How many users are there?",
             sql="SELECT COUNT(*) FROM users;"
         )
         vn.train(
@@ -100,9 +96,10 @@ async def startup_event():
             sql="SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
         )
         # Add more examples here for your most common questions
-        print("✅ Custom training complete.")
+        print("   ✅ Custom training complete.")
+        print("✅ Initial training complete.")
     else:
-        print("✅ Custom question-SQL pairs already exist.")
+        print("✅ Training data found. Skipping initial training.")
 
 
 # --- API Endpoints ---
