@@ -23,6 +23,26 @@ services:
       retries: 5
       start_period: 30s
 
+  postgres:
+    image: postgres:17
+    container_name: postgres-db
+    environment:
+      POSTGRES_DB: langchain_dev
+      POSTGRES_USER: langchain_user
+      POSTGRES_PASSWORD: langchain_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langchain_user -d langchain_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   ollama_data:
     name: ollama_data
+  postgres_data:
+    driver: local
