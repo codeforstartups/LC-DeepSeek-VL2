@@ -95,6 +95,10 @@ async def startup_event():
             question="What are the names of all the tables?",
             sql="SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
         )
+        vn.train(
+            question="List all usernames.",
+            sql="SELECT username FROM users;"
+        )
         # Add more examples here for your most common questions
         print("   ✅ Custom training complete.")
         print("✅ Initial training complete.")
