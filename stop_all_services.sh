@@ -95,5 +95,5 @@ fi
 echo "🎉 All screen sessions terminated!"
 echo ""
 echo "🐳 Shutting down Docker services..."
-docker-compose -f ollama-compose.yml down
+docker compose -f ollama-compose.yml down
 echo "✅ Docker services stopped."

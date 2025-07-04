@@ -110,7 +110,7 @@ export OLLAMA_NUM_GPU=0 && \
 export OLLAMA_HOST=\"0.0.0.0:11434\" && \
 echo '🤖 Starting Ollama Models on CPU...' && \
 chmod +x start-ollama.sh && \
-docker-compose -f ollama-compose.yml up\
+docker compose -f ollama-compose.yml up\
 "
 
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
