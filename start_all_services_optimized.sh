@@ -142,6 +142,15 @@ npm run preview\
 
 )
 
+# Function to check if a port is in use and kill the process using it
+kill_process_on_port() {
+    local port=$1
+    if lsof -i :$port -t >/dev/null; then
+        echo "⚠️  Port $port is in use. Killing the process using it..."
+        lsof -i :$port -t | xargs kill -9
+    fi
+}
+
 # 5️⃣ Helper to restart one service with enhanced logging
 restart_service() {
     local name=$1
@@ -206,6 +215,7 @@ sleep 5 # Give them a moment to initialize
 
 # Start Vanna API after initiating Docker services
 echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
+kill_process_on_port 8008
 restart_service "vanna_api_cpu" "${SERVICES[vanna_api_cpu]}"
 sleep 2
 
