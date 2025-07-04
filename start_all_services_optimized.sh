@@ -105,11 +105,12 @@ echo '🧠 Starting Vanna Text-to-SQL API on CPU...' && \
 uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
 "
 
-  # 🐳 DOCKER SERVICES (Host Memory)
-  [docker_stack]="\
-echo '🐳 Starting Docker stack (Ollama, Postgres, Qdrant)...' && \
-docker-compose -f ollama-compose.yml up -d && \
-echo '✅ Docker services initiated. They will start in the background.'\
+  [ollama_models_cpu]="\
+export OLLAMA_NUM_GPU=0 && \
+export OLLAMA_HOST=\"0.0.0.0:11434\" && \
+echo '🤖 Starting Ollama Models on CPU...' && \
+chmod +x start-ollama.sh && \
+docker-compose -f ollama-compose.yml up\
 "
 
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
@@ -199,9 +200,9 @@ restart_service "translation_api_cpu" "${SERVICES[translation_api_cpu]}"
 sleep 2
 
 # Start support services
-echo "🐳 Phase 4: Starting support services..."
-restart_service "docker_stack" "${SERVICES[docker_stack]}"
-sleep 3
+echo "🐳 Phase 4: Starting Docker support services..."
+restart_service "ollama_models_cpu" "${SERVICES[ollama_models_cpu]}"
+sleep 5 # Give them a moment to initialize
 
 # Start Vanna API after initiating Docker services
 echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
