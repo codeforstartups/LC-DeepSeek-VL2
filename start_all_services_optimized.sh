@@ -109,12 +109,7 @@ uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
   [docker_stack]="\
 echo '🐳 Starting Docker stack (Ollama, Postgres, Qdrant)...' && \
 docker-compose -f ollama-compose.yml up -d && \
-echo '⌛ Waiting for all Docker services to be healthy...' && \
-while ! (docker inspect --format='{{.State.Health.Status}}' postgres-db 2>/dev/null | grep -q 'healthy' && docker inspect --format='{{.State.Health.Status}}' qdrant-db 2>/dev/null | grep -q 'healthy'); do \
-    echo '   - Waiting for databases...'; \
-    sleep 5; \
-done && \
-echo '✅ All Docker services are healthy and ready!'\
+echo '✅ Docker services initiated. They will start in the background.'\
 "
 
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
@@ -208,7 +203,7 @@ echo "🐳 Phase 4: Starting support services..."
 restart_service "docker_stack" "${SERVICES[docker_stack]}"
 sleep 3
 
-# Start Vanna API only after the Docker stack is confirmed healthy
+# Start Vanna API after initiating Docker services
 echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
 restart_service "vanna_api_cpu" "${SERVICES[vanna_api_cpu]}"
 sleep 2
