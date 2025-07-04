@@ -108,8 +108,6 @@ uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
   [ollama_models_cpu]="\
 export OLLAMA_NUM_GPU=0 && \
 export OLLAMA_HOST=\"0.0.0.0:11434\" && \
-echo 'Ensuring all Docker services are down before starting...' && \
-docker-compose -f ollama-compose.yml down && \
 echo '🤖 Starting Ollama Models on CPU...' && \
 chmod +x start-ollama.sh && \
 docker-compose -f ollama-compose.yml up\

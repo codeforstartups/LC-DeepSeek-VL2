@@ -92,4 +92,8 @@ else
     exit 1
 fi
 
-echo "🎉 All services stopped successfully!"
+echo "🎉 All screen sessions terminated!"
+echo ""
+echo "🐳 Shutting down Docker services..."
+docker-compose -f ollama-compose.yml down
+echo "✅ Docker services stopped."
