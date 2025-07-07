@@ -3,11 +3,38 @@ import mindsdb_sdk
 import sys
 import time
 import os
+import psycopg2
+import pandas as pd
+from sqlalchemy import create_engine
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # This loads the .env file
+    print("✅ Loaded environment variables from .env file")
+except ImportError:
+    print("⚠️  python-dotenv not installed. Install with: pip install python-dotenv")
+    print("💡 Or set environment variables manually")
 
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}  # e.g., connect to local or remote MindsDB
+
+# Environment Configuration
+USE_REMOTE_MINDSDB = os.getenv('USE_REMOTE_MINDSDB', 'true').lower() == 'true'
+REMOTE_MINDSDB_HOST = os.getenv('REMOTE_MINDSDB_HOST', "13.59.72.219")
+REMOTE_MINDSDB_PORT = int(os.getenv('REMOTE_MINDSDB_PORT', 47334))
+
+# MindsDB Connection Parameters
+if USE_REMOTE_MINDSDB:
+    MINDSDB_PARAMS = {
+        'url': f'http://{REMOTE_MINDSDB_HOST}:{REMOTE_MINDSDB_PORT}'
+    }
+    print(f"🌐 Connecting to remote MindsDB server: {REMOTE_MINDSDB_HOST}:{REMOTE_MINDSDB_PORT}")
+else:
+    MINDSDB_PARAMS = {}  # Local MindsDB (default port 47334)
+    print("🏠 Connecting to local MindsDB server")
+
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -20,9 +47,44 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "openai_engine"
 MODEL_ALIAS = "text2sql_openai"
-MODEL_NAME = "gpt-4o-mini"  # or "gpt-4"
+MODEL_NAME = "gpt-4" # "gpt-4o-mini"
 SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
+
+def execute_text_to_sql(server, question):
+    """Execute text-to-SQL query using the robust SQL-based approach"""
+    try:
+        print(f"\n🔍 Processing question: {question}")
+
+        # Query agent directly using SQL (ROBUST APPROACH)
+        result = server.query(f"""
+            SELECT answer
+            FROM {AGENT_NAME}
+            WHERE question = '{question}'
+        """)
+
+        df = result.fetch()
+        if df.empty:
+            print("❌ No results returned from agent")
+            return None, None
+
+        sql_query = df.iloc[0]['answer']
+        print(f"✅ Generated SQL:\n{sql_query}")
+
+        # Execute on PostgreSQL database using SQLAlchemy
+        connection_string = f"postgresql://{PG['user']}:{PG['password']}@{PG['host']}:{PG['port']}/{PG['database']}"
+        engine = create_engine(connection_string)
+        data = pd.read_sql_query(sql_query, engine)
+        engine.dispose()
+
+        print(f"\n📊 Query Results:")
+        print(data)
+
+        return sql_query, data
+
+    except Exception as e:
+        print(f"❌ Error executing text-to-SQL: {e}")
+        return None, None
 
 def main():
     if not OPENAI_API_KEY:
@@ -69,7 +131,7 @@ def main():
         )
         print(f"✅ Created engine '{ENGINE_NAME}'")
 
-    # 🧠 Create LLM model (without database_schema)
+    # 🧠 Create LLM model
     model = server.models.create(
         name=MODEL_ALIAS,
         engine=ENGINE_NAME,
@@ -77,10 +139,18 @@ def main():
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '''
-You are a world-class SQL generator. Provide only the SQL query—no explanation.
+You are a PostgreSQL expert. Generate ONLY valid SQL queries based on the user's question.
 
-User question:
-{{question}}
+Rules:
+1. Return ONLY the SQL query, no explanation
+2. No markdown formatting
+3. Use proper PostgreSQL syntax
+4. Quote table/column names with backticks if needed
+
+Database Schema:
+- users table: id, username, email, signup_date, status
+
+User question: {{question}}
 '''.strip()
         }
     )
@@ -115,14 +185,35 @@ User question:
     )
     print("✅ Agent created")
 
-    # 🧪 Test it
-    question = "How many users signed up in each month during 2023?"
-    reply = agent.completion([{"question": question, "answer": None}])
-    sql = getattr(reply, "sql", None)
-    answer = getattr(reply, "answer", reply.content)
+    # 🧪 Test using the robust SQL-based approach
+    questions = [
+        "How many users signed up in each month during 2023?",
+        "What is the total number of users in the database?",
+        "Show me the latest 5 users who signed up"
+    ]
 
-    print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
-    print("✅ Agent Answer:\n", answer)
+    print("\n" + "="*50)
+    print("🚀 TESTING TEXT-TO-SQL AGENT")
+    print("="*50)
+
+    for i, question in enumerate(questions, 1):
+        print(f"\n📝 Test {i}/{len(questions)}")
+        print("-" * 30)
+
+        sql, data = execute_text_to_sql(server, question)
+
+        if sql and data is not None:
+            print(f"✅ Success! Generated {len(data)} rows")
+        else:
+            print("❌ Failed to generate or execute SQL")
+
+        if i < len(questions):
+            print("\n" + "⏳ Waiting 2 seconds before next test...")
+            time.sleep(2)
+
+    print("\n" + "="*50)
+    print("🎉 TEXT-TO-SQL TESTING COMPLETE!")
+    print("="*50)
 
 if __name__ == "__main__":
     main()
