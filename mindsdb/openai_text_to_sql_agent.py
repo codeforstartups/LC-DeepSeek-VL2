@@ -1,19 +1,21 @@
 # file: openai_text_to_sql_agent.py
-import mindsdb_sdk
-import os
-import sys
-import time
+import mindsdb_sdk, os, sys, time
 
 # --------------------
 # CONFIGURATION
 # --------------------
 MINDSDB_PARAMS = {}
-PG = {"user": "langchain_user", "password": "langchain_password",
-      "host": "13.59.72.219", "port": "5432", "database": "langchain_dev"}
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
-
+PG = {
+    "user": "langchain_user",
+    "password": "langchain_password",
+    "host": "13.59.72.219",
+    "port": "5432",
+    "database": "langchain_dev",
+}
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "openai_engine"
+SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "text2sql_agent"
 
 def main():
@@ -24,50 +26,55 @@ def main():
     server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
     print("✅ Connected to MindsDB")
 
-    # -- Cleanup resources
-    for coll, name in [("agents", AGENT_NAME)]:
-        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
-        except: pass
-    for coll, name in [("skills", "text2sql_skill")]:
-        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
-        except: pass
-    for coll, name in [("databases", DB_NAME)]:
-        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
-        except: pass
+    # Full cleanup
+    for coll, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME),
+                       ("models", AGENT_NAME), ("databases", DB_NAME)]:
+        try:
+            getattr(server, coll).drop(name)
+            print(f"🗑️ Dropped {name}")
+        except:
+            pass
 
-    # -- Create database connection
+    # Re-create database
     server.databases.create(DB_NAME, engine="postgres", connection_args=PG)
-    print("✅ Database connected:", DB_NAME)
+    print("✅ Created database")
 
-    # -- Create ML engine
+    # Ensure engine exists
     try:
         server.ml_engines.get(ENGINE_NAME)
     except:
         server.ml_engines.create(
-            name=ENGINE_NAME, handler="openai",
+            name=ENGINE_NAME,
+            handler="openai",
             connection_data={"openai_api_key": OPENAI_API_KEY}
         )
-    print("✅ Engine ready:", ENGINE_NAME)
+    print("✅ Engine ready")
 
-    # -- Create SQL skill
+    # Create SQL skill
     sql_skill = server.skills.create(
-        name="text2sql_skill",
+        name=SKILL_NAME,
         type="sql",
-        params={"database": DB_NAME, "tables": ["users"],
-                "description": "Text-to-SQL over users table"}
+        params={
+            "database": DB_NAME,
+            "tables": ["users"],
+            "description": "Text‑to‑SQL over 'users'"
+        }
     )
     print("✅ Skill created:", sql_skill.name)
 
-    # -- Create the agent with built-in prompting
-    agent = server.agents.create(name=AGENT_NAME, skills=[sql_skill])
+    # Create agent using the **skill name** (not skill object)
+    agent = server.agents.create(
+        name=AGENT_NAME,
+        skills=[sql_skill.name]
+    )
     print("✅ Agent created:", agent.name)
 
-    # -- Ask and execute SQL
+    # Execute a query
     question = "How many users signed up in each month during 2023?"
     reply = agent.completion([{"question": question, "answer": None}])
 
-    print("\n🧪 Generated SQL:\n", reply.sql)
-    print("✅ Query Results:\n", reply.answer)
+    print("\n🧪 SQL:", reply.sql)
+    print("✅ Results:\n", reply.answer)
 
 if __name__ == "__main__":
     main()
