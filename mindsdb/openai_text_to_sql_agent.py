@@ -1,135 +1,73 @@
 # file: openai_text_to_sql_agent.py
 import mindsdb_sdk
+import os
 import sys
 import time
-import os
 
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}  # e.g., connect to local or remote MindsDB
-PG = {
-    "user": "langchain_user",
-    "password": "langchain_password",
-    "host": "13.59.72.219",
-    "port": "5432",
-    "database": "langchain_dev",
-}
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+MINDSDB_PARAMS = {}
+PG = {"user": "langchain_user", "password": "langchain_password",
+      "host": "13.59.72.219", "port": "5432", "database": "langchain_dev"}
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", None)
 
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "openai_engine"
-MODEL_ALIAS = "text2sql_openai"
-MODEL_NAME = "gpt-4o-mini"  # or "gpt-4"
-SKILL_NAME = "text2sql_skill"
-AGENT_NAME = "langchain_sql_agent"
+AGENT_NAME = "text2sql_agent"
 
 def main():
     if not OPENAI_API_KEY:
-        print("🛑 Please set the OPENAI_API_KEY environment variable.", file=sys.stderr)
+        print("🛑 Please set OPENAI_API_KEY.", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
-        print("✅ Connected to MindsDB")
-    except Exception as e:
-        print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
-        sys.exit(1)
+    server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
+    print("✅ Connected to MindsDB")
 
-    # 🔁 Full Cleanup
-    for coll, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME)]:
-        try:
-            getattr(server, coll).drop(name)
-            print(f"🗑️ Dropped {coll[:-1]} '{name}'")
-        except:
-            pass
+    # -- Cleanup resources
+    for coll, name in [("agents", AGENT_NAME)]:
+        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
+        except: pass
+    for coll, name in [("skills", "text2sql_skill")]:
+        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
+        except: pass
+    for coll, name in [("databases", DB_NAME)]:
+        try: getattr(server, coll).drop(name); print(f"Dropped {name}")
+        except: pass
 
-    for model_or_db, name in [("models", MODEL_ALIAS), ("databases", DB_NAME)]:
-        try:
-            getattr(server, model_or_db).drop(name)
-            print(f"🗑️ Dropped {model_or_db[:-1]} '{name}'")
-        except:
-            pass
+    # -- Create database connection
+    server.databases.create(DB_NAME, engine="postgres", connection_args=PG)
+    print("✅ Database connected:", DB_NAME)
 
-    # 🔧 Recreate database
-    server.databases.create(
-        name=DB_NAME, engine="postgres", connection_args=PG
-    )
-    print(f"✅ Created database '{DB_NAME}'")
-
-    # ✅ Ensure OpenAI engine exists
+    # -- Create ML engine
     try:
         server.ml_engines.get(ENGINE_NAME)
-        print(f"✅ Engine '{ENGINE_NAME}' already exists")
     except:
         server.ml_engines.create(
-            name=ENGINE_NAME,
-            handler="openai",
+            name=ENGINE_NAME, handler="openai",
             connection_data={"openai_api_key": OPENAI_API_KEY}
         )
-        print(f"✅ Created engine '{ENGINE_NAME}'")
+    print("✅ Engine ready:", ENGINE_NAME)
 
-    # 🧠 Create LLM model (without database_schema)
-    model = server.models.create(
-        name=MODEL_ALIAS,
-        engine=ENGINE_NAME,
-        predict='completion',
-        options={
-            'model_name': MODEL_NAME,
-            'prompt_template': '''
-You are a world-class SQL generator. Provide only the SQL query—no explanation.
-
-User question:
-{{question}}
-'''.strip()
-        }
-    )
-    print("⏳ Model creation started...")
-    status = model.get_status()
-    while status not in ("finished", "complete", "error"):
-        time.sleep(5)
-        status = model.get_status()
-        print("Model status:", status)
-    if status == "error":
-        print("❌ Model creation failed")
-        sys.exit(1)
-    print("✅ Model is ready")
-
-    # 🛠️ Create SQL skill
-    server.skills.create(
-        name=SKILL_NAME,
+    # -- Create SQL skill
+    sql_skill = server.skills.create(
+        name="text2sql_skill",
         type="sql",
-        params={
-            "database": DB_NAME,
-            "tables": ["users"],  # Adjust to your schema
-            "description": "Text-to-SQL skill over 'users' table"
-        }
+        params={"database": DB_NAME, "tables": ["users"],
+                "description": "Text-to-SQL over users table"}
     )
-    print("✅ Skill created")
+    print("✅ Skill created:", sql_skill.name)
 
-    # 🤖 Create agent
-    agent = server.agents.create(
-        name=AGENT_NAME,
-        model=model,
-        skills=[SKILL_NAME]
-    )
-    print("✅ Agent created")
+    # -- Create the agent with built-in prompting
+    agent = server.agents.create(name=AGENT_NAME, skills=[sql_skill])
+    print("✅ Agent created:", agent.name)
 
-    # 🧪 Test it
+    # -- Ask and execute SQL
     question = "How many users signed up in each month during 2023?"
-
-    # First, get the generated SQL from the model directly
-    sql_model = server.models.get(MODEL_ALIAS)
-    sql_reply = sql_model.predict({'question': question})
-    generated_sql = sql_reply['completion'].iloc[0]
-
-    # Then, get the final answer from the agent
     reply = agent.completion([{"question": question, "answer": None}])
-    answer = getattr(reply, "answer", reply.content)
 
-    print("\n🧪 Generated SQL:\n", generated_sql or "SQL not generated.")
-    print("✅ Agent Answer:\n", answer)
-
+    print("\n🧪 Generated SQL:\n", reply.sql)
+    print("✅ Query Results:\n", reply.answer)
 
 if __name__ == "__main__":
     main()
