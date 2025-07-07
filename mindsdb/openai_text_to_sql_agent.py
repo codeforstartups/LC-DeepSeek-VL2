@@ -1,10 +1,13 @@
 # file: openai_text_to_sql_agent.py
-import mindsdb_sdk, os, sys, time
+import mindsdb_sdk
+import sys
+import time
+import os
 
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}
+MINDSDB_PARAMS = {}  # e.g., connect to local or remote MindsDB
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -12,69 +15,114 @@ PG = {
     "port": "5432",
     "database": "langchain_dev",
 }
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "openai_engine"
+MODEL_ALIAS = "text2sql_openai"
+MODEL_NAME = "gpt-4o-mini"  # or "gpt-4"
 SKILL_NAME = "text2sql_skill"
-AGENT_NAME = "text2sql_agent"
+AGENT_NAME = "langchain_sql_agent"
 
 def main():
     if not OPENAI_API_KEY:
-        print("🛑 Please set OPENAI_API_KEY.", file=sys.stderr)
+        print("🛑 Please set the OPENAI_API_KEY environment variable.", file=sys.stderr)
         sys.exit(1)
 
-    server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
-    print("✅ Connected to MindsDB")
+    try:
+        server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
+        print("✅ Connected to MindsDB")
+    except Exception as e:
+        print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
+        sys.exit(1)
 
-    # Full cleanup
-    for coll, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME),
-                       ("models", AGENT_NAME), ("databases", DB_NAME)]:
+    # 🔁 Full Cleanup
+    for coll, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME)]:
         try:
             getattr(server, coll).drop(name)
-            print(f"🗑️ Dropped {name}")
+            print(f"🗑️ Dropped {coll[:-1]} '{name}'")
         except:
             pass
 
-    # Re-create database
-    server.databases.create(DB_NAME, engine="postgres", connection_args=PG)
-    print("✅ Created database")
+    for model_or_db, name in [("models", MODEL_ALIAS), ("databases", DB_NAME)]:
+        try:
+            getattr(server, model_or_db).drop(name)
+            print(f"🗑️ Dropped {model_or_db[:-1]} '{name}'")
+        except:
+            pass
 
-    # Ensure engine exists
+    # 🔧 Recreate database
+    server.databases.create(
+        name=DB_NAME, engine="postgres", connection_args=PG
+    )
+    print(f"✅ Created database '{DB_NAME}'")
+
+    # ✅ Ensure OpenAI engine exists
     try:
         server.ml_engines.get(ENGINE_NAME)
+        print(f"✅ Engine '{ENGINE_NAME}' already exists")
     except:
         server.ml_engines.create(
             name=ENGINE_NAME,
             handler="openai",
             connection_data={"openai_api_key": OPENAI_API_KEY}
         )
-    print("✅ Engine ready")
+        print(f"✅ Created engine '{ENGINE_NAME}'")
 
-    # Create SQL skill
-    sql_skill = server.skills.create(
+    # 🧠 Create LLM model (without database_schema)
+    model = server.models.create(
+        name=MODEL_ALIAS,
+        engine=ENGINE_NAME,
+        predict='completion',
+        options={
+            'model_name': MODEL_NAME,
+            'prompt_template': '''
+You are a world-class SQL generator. Provide only the SQL query—no explanation.
+
+User question:
+{{question}}
+'''.strip()
+        }
+    )
+    print("⏳ Model creation started...")
+    status = model.get_status()
+    while status not in ("finished", "complete", "error"):
+        time.sleep(5)
+        status = model.get_status()
+        print("Model status:", status)
+    if status == "error":
+        print("❌ Model creation failed")
+        sys.exit(1)
+    print("✅ Model is ready")
+
+    # 🛠️ Create SQL skill
+    server.skills.create(
         name=SKILL_NAME,
         type="sql",
         params={
             "database": DB_NAME,
-            "tables": ["users"],
-            "description": "Text‑to‑SQL over 'users'"
+            "tables": ["users"],  # Adjust to your schema
+            "description": "Text-to-SQL skill over 'users' table"
         }
     )
-    print("✅ Skill created:", sql_skill.name)
+    print("✅ Skill created")
 
-    # Create agent using the **skill name** (not skill object)
+    # 🤖 Create agent
     agent = server.agents.create(
         name=AGENT_NAME,
-        skills=[sql_skill.name]
+        model=model,
+        skills=[SKILL_NAME]
     )
-    print("✅ Agent created:", agent.name)
+    print("✅ Agent created")
 
-    # Execute a query
+    # 🧪 Test it
     question = "How many users signed up in each month during 2023?"
     reply = agent.completion([{"question": question, "answer": None}])
+    sql = getattr(reply, "sql", None)
+    answer = getattr(reply, "answer", reply.content)
 
-    print("\n🧪 SQL:", reply.sql)
-    print("✅ Results:\n", reply.answer)
+    print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
+    print("✅ Agent Answer:\n", answer)
 
 if __name__ == "__main__":
     main()
