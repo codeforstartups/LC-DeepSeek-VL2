@@ -23,7 +23,6 @@ SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
 
 def main():
-    # 1️⃣ Connect to MindsDB
     try:
         server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
         print("✅ Connected to MindsDB")
@@ -31,7 +30,7 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # 2️⃣ Ensure Postgres integration
+    # 2️⃣ Ensure Postgres connection is configured
     try:
         server.databases.get(DB_NAME)
         print(f"✅ Database '{DB_NAME}' already exists")
@@ -44,7 +43,11 @@ def main():
         server.ml_engines.get(ENGINE_NAME)
         print(f"✅ ML engine '{ENGINE_NAME}' already exists")
     except Exception:
-        server.ml_engines.create(name=ENGINE_NAME, handler="ollama", connection_data=ENGINE_CONN)
+        server.ml_engines.create(
+            name=ENGINE_NAME,
+            handler="ollama",
+            connection_data=ENGINE_CONN
+        )
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
     # 4️⃣ Create or fetch conversational model
@@ -74,7 +77,15 @@ def main():
         server.skills.get(SKILL_NAME)
         print(f"✅ Skill '{SKILL_NAME}' already exists")
     except Exception:
-        server.skills.create(name=SKILL_NAME, type="sql", params={"database": DB_NAME, "tables": []})
+        server.skills.create(
+            name=SKILL_NAME,
+            type="sql",
+            params={
+                "database": DB_NAME,
+                "tables": [],  # Or add specific tables: ["users", "orders"]
+                "description": "Allows SQL queries over langchain_dev"
+            }
+        )
         print(f"✅ Created skill '{SKILL_NAME}'")
 
     # 6️⃣ Instantiate agent
@@ -82,7 +93,11 @@ def main():
         agent = server.agents.get(AGENT_NAME)
         print(f"✅ Agent '{AGENT_NAME}' already exists")
     except Exception:
-        agent = server.agents.create(name=AGENT_NAME, model=model, skills=[SKILL_NAME])
+        agent = server.agents.create(
+            name=AGENT_NAME,
+            model=model,
+            skills=[SKILL_NAME]
+        )
         print(f"✅ Created agent '{AGENT_NAME}'")
 
     # 7️⃣ Ask a question
