@@ -6,7 +6,7 @@ import time
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}
+MINDSDB_PARAMS = {}  # connect to local MindsDB
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -23,6 +23,7 @@ SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
 
 def main():
+    # 1️⃣ Connect to MindsDB
     try:
         server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
         print("✅ Connected to MindsDB")
@@ -30,7 +31,7 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: PostgreSQL integration
+    # 2️⃣ Ensure PostgreSQL database is connected
     try:
         server.databases.get(DB_NAME)
         print(f"✅ Database '{DB_NAME}' already exists")
@@ -38,7 +39,7 @@ def main():
         server.databases.create(name=DB_NAME, engine="postgres", connection_args=PG)
         print(f"✅ Created database '{DB_NAME}'")
 
-    # Step 3: Register Ollama engine
+    # 3️⃣ Register Ollama as ML engine
     try:
         server.ml_engines.get(ENGINE_NAME)
         print(f"✅ ML engine '{ENGINE_NAME}' already exists")
@@ -50,7 +51,7 @@ def main():
         )
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
-    # Step 4: Create or fetch the model
+    # 4️⃣ Create or fetch the conversational model
     try:
         model = server.models.get(MODEL_ALIAS)
         print(f"✅ Model '{MODEL_ALIAS}' already exists")
@@ -75,7 +76,7 @@ def main():
             sys.exit(1)
         print(f"✅ Model '{MODEL_ALIAS}' is ready")
 
-    # Step 5: Create Text-to-SQL skill
+    # 5️⃣ Create or get the Text-to-SQL skill
     try:
         server.skills.get(SKILL_NAME)
         print(f"✅ Skill '{SKILL_NAME}' already exists")
@@ -91,7 +92,7 @@ def main():
         )
         print(f"✅ Created skill '{SKILL_NAME}'")
 
-    # Step 6: Create or fetch the agent
+    # 6️⃣ Create or fetch the agent
     try:
         agent = server.agents.get(AGENT_NAME)
         print(f"✅ Agent '{AGENT_NAME}' already exists")
@@ -103,7 +104,7 @@ def main():
         )
         print(f"✅ Created agent '{AGENT_NAME}'")
 
-    # Step 7: Query the agent
+    # 7️⃣ Ask the agent and get SQL + answer
     question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
 
