@@ -129,12 +129,19 @@ Here is the user's question:
 
     # 🧪 Test it
     question = "How many users signed up in each month during 2023?"
+
+    # First, get the generated SQL from the model directly
+    sql_model = server.models.get(MODEL_ALIAS)
+    sql_reply = sql_model.predict({'question': question})
+    generated_sql = sql_reply['completion'].iloc[0]
+
+    # Then, get the final answer from the agent
     reply = agent.completion([{"question": question, "answer": None}])
-    sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
 
-    print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
+    print("\n🧪 Generated SQL:\n", generated_sql or "SQL not generated.")
     print("✅ Agent Answer:\n", answer)
+
 
 if __name__ == "__main__":
     main()
