@@ -77,7 +77,9 @@ def main():
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '''
-You are a world-class SQL generator. Provide only the SQL query—no explanation.
+Your only function is to generate a single, valid SQL query based on the user's question.
+Do not output any other text, explanation, or markdown formatting.
+Your response must begin with SELECT and end with a semicolon.
 
 User question:
 {{question}}

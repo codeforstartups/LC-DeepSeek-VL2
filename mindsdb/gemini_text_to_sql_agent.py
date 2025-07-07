@@ -85,14 +85,11 @@ def main():
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '''
-You are a world-class SQL generation-specific model.
-Your sole purpose is to generate a valid SQL query given a user's question and the database schema.
-Do not provide any explanation or natural language text, only the SQL query.
+Your only function is to generate a single, valid SQL query based on the user's question.
+Do not output any other text, explanation, or markdown formatting.
+Your response must begin with SELECT and end with a semicolon.
 
-Here is the database schema:
-{{database_schema}}
-
-Here is the user's question:
+User question:
 {{question}}
 '''.strip()
         }
