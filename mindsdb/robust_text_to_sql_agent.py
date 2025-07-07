@@ -31,6 +31,14 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
+    # Clean up previous resources to ensure they are recreated with the correct settings
+    for resource_type, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME), ("models", MODEL_ALIAS)]:
+        try:
+            getattr(server, resource_type).delete(name)
+            print(f"🗑️ Deleted {resource_type[:-1]} '{name}'")
+        except Exception:
+            pass  # Resource might not exist
+
     # 2️⃣ Ensure PostgreSQL database is connected
     try:
         server.databases.get(DB_NAME)
