@@ -113,7 +113,7 @@ Here is the user's question:
         type="sql",
         params={
             "database": DB_NAME,
-            "tables": [],
+            "tables": ["users"],
             "description": "Text-to-SQL skill over langchain_dev"
         }
     )
