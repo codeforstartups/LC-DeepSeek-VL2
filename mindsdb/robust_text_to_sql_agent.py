@@ -3,8 +3,10 @@ import mindsdb_sdk
 import sys
 import time
 
-# CONFIG
-MINDSDB_PARAMS = {}
+# --------------------
+# CONFIGURATION
+# --------------------
+MINDSDB_PARAMS = {}  # e.g., connect to local or remote instance
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -28,49 +30,59 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # 🔁 Fully clean resources
+    # 🔁 Full Cleanup
     for collection, name in [
         ("agents", AGENT_NAME),
         ("skills", SKILL_NAME),
-        ("models", MODEL_ALIAS)
     ]:
         try:
-            getattr(server, collection).delete(name)
-            print(f"🗑️ Deleted {collection[:-1]} '{name}'")
+            getattr(server, collection).drop(name)
+            print(f"🗑️ Dropped {collection[:-1]} '{name}'")
         except:
             pass
 
-    # ✅ Drop and recreate database
+    try:
+        server.models.drop(MODEL_ALIAS)
+        print(f"🗑️ Dropped model '{MODEL_ALIAS}'")
+    except:
+        pass
+
     try:
         server.databases.drop(DB_NAME)
         print(f"🗑️ Dropped database '{DB_NAME}'")
     except:
         pass
-    server.databases.create(DB_NAME, engine="postgres", connection_args=PG)
+
+    # 🔧 Recreate database
+    server.databases.create(
+        name=DB_NAME, engine="postgres", connection_args=PG
+    )
     print(f"✅ Created database '{DB_NAME}'")
 
-    # 🔧 Set up ML engine
+    # ✅ Ensure ML engine
     try:
         server.ml_engines.get(ENGINE_NAME)
+        print(f"✅ Engine '{ENGINE_NAME}' already exists")
     except:
         server.ml_engines.create(
             name=ENGINE_NAME,
             handler="ollama",
             connection_data=ENGINE_CONN
         )
-    print(f"✅ Engine '{ENGINE_NAME}' ready")
+        print(f"✅ Created engine '{ENGINE_NAME}'")
 
-    # 🚀 Create model with proper input mapping
+    # 🧠 Create model with input mapping
     model = server.models.create(
         name=MODEL_ALIAS,
-        engine=ENGINE_NAME,
         predict='completion',
+        engine=ENGINE_NAME,
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '{{question}} Please provide the SQL query.',
             'input_column': 'question'
         }
     )
+    print("⏳ Model creation started...")
     status = model.get_status()
     while status not in ("finished", "complete", "error"):
         time.sleep(5)
@@ -80,14 +92,14 @@ def main():
         print("❌ Model creation failed"); sys.exit(1)
     print("✅ Model is ready")
 
-    # 🧠 Create SQL skill
+    # 🛠️ Create SQL skill
     server.skills.create(
         name=SKILL_NAME,
         type="sql",
         params={
             "database": DB_NAME,
             "tables": [],
-            "description": "Text-to-SQL over langchain_dev"
+            "description": "Text-to-SQL skill over langchain_dev"
         }
     )
     print("✅ Skill created")
@@ -100,11 +112,12 @@ def main():
     )
     print("✅ Agent created")
 
-    # 🧪 Test run
+    # 🧪 Test it
     question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
+
     print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
     print("✅ Agent Answer:\n", answer)
 
