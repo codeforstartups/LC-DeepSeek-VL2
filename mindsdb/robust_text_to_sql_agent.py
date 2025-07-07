@@ -47,19 +47,20 @@ def main():
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
     # 4️⃣ Create or fetch the model
+    # This check ensures the model is not recreated unnecessarily.
     try:
         model = server.models.get(MODEL_ALIAS)
         print(f"✅ Model '{MODEL_ALIAS}' already exists")
     except Exception:
+        print(f"⌛ Model '{MODEL_ALIAS}' not found, creating...")
         model = server.models.create(
             name=MODEL_ALIAS,
-            predict='answer', # The column we want the model to predict
+            engine=ENGINE_NAME,  # Correct: engine is a top-level argument.
+            predict='answer',
             options={
-                'provider': ENGINE_NAME,
                 'model_name': MODEL_NAME,
-                'mode': 'default',
-                # Use 'text' as the input variable, which is a common convention
-                'prompt_template': '{{text}}. Provide the SQL query that answers the question.'
+                # This MUST use 'question' because that's what the 'text2sql_skill' provides.
+                'prompt_template': '{{question}}. Provide the SQL query that answers the question.'
             }
         )
         print("⏳ Model creation initiated...")
@@ -100,7 +101,7 @@ def main():
     # 7️⃣ Ask the agent a question
     question = "How many users are there in total?"
     try:
-        reply = agent.completion([{"text": question}])
+        reply = agent.completion([{"question": question}])
     except KeyError as e:
         print(f"❌ Agent returned KeyError: {e}. Likely missing 'text' column in prompt.")
         sys.exit(1)
