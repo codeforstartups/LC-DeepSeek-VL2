@@ -95,7 +95,7 @@ Here is the database schema:
 Here is the user's question:
 {{question}}
 '''.strip(),
-            'input_column': 'question'
+            'question_column': 'question'
         }
     )
     print("⏳ Model creation started...")
