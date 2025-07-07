@@ -3,10 +3,17 @@ import mindsdb_sdk
 import sys
 import time
 
+# --------------------
 # CONFIGURATION
+# --------------------
 MINDSDB_PARAMS = {}
-PG = { "user": "langchain_user", "password": "langchain_password",
-       "host": "13.59.72.219", "port": "5432", "database": "langchain_dev" }
+PG = {
+    "user": "langchain_user",
+    "password": "langchain_password",
+    "host": "13.59.72.219",
+    "port": "5432",
+    "database": "langchain_dev",
+}
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "ollama_deepseek_engine"
 ENGINE_CONN = {"ollama_serve_url": "http://host.docker.internal:11434"}
@@ -20,9 +27,10 @@ def main():
         server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
         print("✅ Connected to MindsDB")
     except Exception as e:
-        print("❌ Cannot connect to MindsDB:", e, file=sys.stderr); sys.exit(1)
+        print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
+        sys.exit(1)
 
-    # Postgres integration
+    # Setup Postgres
     try:
         server.databases.get(DB_NAME)
         print(f"✅ Database '{DB_NAME}' already exists")
@@ -30,7 +38,7 @@ def main():
         server.databases.create(name=DB_NAME, engine="postgres", connection_args=PG)
         print(f"✅ Created database '{DB_NAME}'")
 
-    # Ollama engine registration
+    # Register Ollama engine
     try:
         server.ml_engines.get(ENGINE_NAME)
         print(f"✅ ML engine '{ENGINE_NAME}' already exists")
@@ -38,22 +46,18 @@ def main():
         server.ml_engines.create(name=ENGINE_NAME, handler="ollama", connection_data=ENGINE_CONN)
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
-    # Model creation or retrieval
-    # This check ensures the model is not recreated unnecessarily.
+    # Create or fetch the model
     try:
         model = server.models.get(MODEL_ALIAS)
         print(f"✅ Model '{MODEL_ALIAS}' already exists")
     except Exception:
-        print(f"⌛ Model '{MODEL_ALIAS}' not found, creating...")
         model = server.models.create(
             name=MODEL_ALIAS,
             engine=ENGINE_NAME,
-            predict='answer', # The column we want the model to predict
+            predict='completion',
             options={
-                'model_name': MODEL_NAME
-                # NOTE: We are intentionally REMOVING the prompt_template.
-                # The 'text2sql_skill' is responsible for creating the full prompt,
-                # so a custom template here would interfere with it.
+                'model_name': MODEL_NAME,
+                'prompt_template': '{{text}} Provide SQL that answers the question.'
             }
         )
         print("⏳ Model creation initiated...")
@@ -66,7 +70,7 @@ def main():
             print("❌ Model creation failed"); sys.exit(1)
         print(f"✅ Model '{MODEL_ALIAS}' is ready")
 
-    # Text-to-SQL skill
+    # Create Text-to-SQL skill
     try:
         server.skills.get(SKILL_NAME)
         print(f"✅ Skill '{SKILL_NAME}' already exists")
@@ -74,11 +78,11 @@ def main():
         server.skills.create(
             name=SKILL_NAME,
             type="sql",
-            params={"database": DB_NAME, "tables": [], "description": "SQL skill"}
+            params={"database": DB_NAME, "tables": [], "description": "SQL interface over langchain_dev"}
         )
         print(f"✅ Created skill '{SKILL_NAME}'")
 
-    # Agent instantiation
+    # Create or fetch agent
     try:
         agent = server.agents.get(AGENT_NAME)
         print(f"✅ Agent '{AGENT_NAME}' already exists")
@@ -86,13 +90,12 @@ def main():
         agent = server.agents.create(name=AGENT_NAME, model=model, skills=[SKILL_NAME])
         print(f"✅ Created agent '{AGENT_NAME}'")
 
-    # Ask the agent
+    # Ask the agent (ensuring 'text' matches the template variable)
     question = "How many users are there in total?"
-    reply = agent.completion([{"question": question, "answer": None}])
+    reply = agent.completion([{"text": question}])
 
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
-
     print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
     print("✅ Agent Answer:\n", answer)
 
