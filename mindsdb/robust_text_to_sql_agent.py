@@ -3,10 +3,8 @@ import mindsdb_sdk
 import sys
 import time
 
-# --------------------
-# CONFIGURATION
-# --------------------
-MINDSDB_PARAMS = {}  # e.g., {"host": "...", "port": 47334}
+# CONFIG
+MINDSDB_PARAMS = {}
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -30,50 +28,49 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # Full clean-up on every run
+    # 🔁 Fully clean resources
     for collection, name in [
         ("agents", AGENT_NAME),
         ("skills", SKILL_NAME),
-        ("models", MODEL_ALIAS),
-        ("databases", DB_NAME)
+        ("models", MODEL_ALIAS)
     ]:
         try:
             getattr(server, collection).delete(name)
             print(f"🗑️ Deleted {collection[:-1]} '{name}'")
-        except Exception:
-            pass  # not existing is fine
+        except:
+            pass
 
-    # Recreate database connection
-    server.databases.create(
-        name=DB_NAME, engine="postgres", connection_args=PG
-    )
+    # ✅ Drop and recreate database
+    try:
+        server.databases.drop(DB_NAME)
+        print(f"🗑️ Dropped database '{DB_NAME}'")
+    except:
+        pass
+    server.databases.create(DB_NAME, engine="postgres", connection_args=PG)
     print(f"✅ Created database '{DB_NAME}'")
 
-    # Ensure ML engine exists
+    # 🔧 Set up ML engine
     try:
         server.ml_engines.get(ENGINE_NAME)
-        print(f"✅ ML engine '{ENGINE_NAME}' already exists")
-    except Exception:
+    except:
         server.ml_engines.create(
             name=ENGINE_NAME,
             handler="ollama",
             connection_data=ENGINE_CONN
         )
-        print(f"✅ Created ML engine '{ENGINE_NAME}'")
+    print(f"✅ Engine '{ENGINE_NAME}' ready")
 
-    # Create LLM model for text-to-SQL conversion
+    # 🚀 Create model with proper input mapping
     model = server.models.create(
         name=MODEL_ALIAS,
         engine=ENGINE_NAME,
         predict='completion',
-        # Must include input key mapping:
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '{{question}} Please provide the SQL query.',
             'input_column': 'question'
         }
     )
-    print("⏳ Model creation started...")
     status = model.get_status()
     while status not in ("finished", "complete", "error"):
         time.sleep(5)
@@ -83,19 +80,19 @@ def main():
         print("❌ Model creation failed"); sys.exit(1)
     print("✅ Model is ready")
 
-    # Create Text-to-SQL skill
+    # 🧠 Create SQL skill
     server.skills.create(
         name=SKILL_NAME,
         type="sql",
         params={
             "database": DB_NAME,
-            "tables": [],  # Optionally list your tables
-            "description": "Text-to-SQL skill over langchain_dev"
+            "tables": [],
+            "description": "Text-to-SQL over langchain_dev"
         }
     )
     print("✅ Skill created")
 
-    # Create agent linking them
+    # 🤖 Create agent
     agent = server.agents.create(
         name=AGENT_NAME,
         model=model,
@@ -103,10 +100,9 @@ def main():
     )
     print("✅ Agent created")
 
-    # Test the pipeline
+    # 🧪 Test run
     question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
-
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
     print("\n🧪 Generated SQL:\n", sql or "SQL not generated.")
