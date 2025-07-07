@@ -116,7 +116,7 @@ User question:
     print("✅ Agent created")
 
     # 🧪 Test it
-    question = "How many users signed up in each month during 2023?"
+    question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
