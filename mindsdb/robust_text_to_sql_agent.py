@@ -6,7 +6,7 @@ import time
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}  # connect to local MindsDB
+MINDSDB_PARAMS = {}  # e.g., {"host": "...", "port": 47334}
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -23,7 +23,6 @@ SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
 
 def main():
-    # 1️⃣ Connect to MindsDB
     try:
         server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
         print("✅ Connected to MindsDB")
@@ -31,23 +30,26 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # Clean up previous resources to ensure they are recreated with the correct settings
-    for resource_type, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME), ("models", MODEL_ALIAS)]:
+    # Full clean-up on every run
+    for collection, name in [
+        ("agents", AGENT_NAME),
+        ("skills", SKILL_NAME),
+        ("models", MODEL_ALIAS),
+        ("databases", DB_NAME)
+    ]:
         try:
-            getattr(server, resource_type).delete(name)
-            print(f"🗑️ Deleted {resource_type[:-1]} '{name}'")
+            getattr(server, collection).delete(name)
+            print(f"🗑️ Deleted {collection[:-1]} '{name}'")
         except Exception:
-            pass  # Resource might not exist
+            pass  # not existing is fine
 
-    # 2️⃣ Ensure PostgreSQL database is connected
-    try:
-        server.databases.get(DB_NAME)
-        print(f"✅ Database '{DB_NAME}' already exists")
-    except Exception:
-        server.databases.create(name=DB_NAME, engine="postgres", connection_args=PG)
-        print(f"✅ Created database '{DB_NAME}'")
+    # Recreate database connection
+    server.databases.create(
+        name=DB_NAME, engine="postgres", connection_args=PG
+    )
+    print(f"✅ Created database '{DB_NAME}'")
 
-    # 3️⃣ Register Ollama as ML engine
+    # Ensure ML engine exists
     try:
         server.ml_engines.get(ENGINE_NAME)
         print(f"✅ ML engine '{ENGINE_NAME}' already exists")
@@ -59,60 +61,49 @@ def main():
         )
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
-    # 4️⃣ Create or fetch the conversational model
-    try:
-        model = server.models.get(MODEL_ALIAS)
-        print(f"✅ Model '{MODEL_ALIAS}' already exists")
-    except Exception:
-        model = server.models.create(
-            name=MODEL_ALIAS,
-            engine=ENGINE_NAME,
-            predict='completion',
-            options={
-                'model_name': MODEL_NAME,
-                'prompt_template': '{{question}} Please provide the SQL query answering the question.'
-            }
-        )
-        print("⏳ Model creation initiated...")
+    # Create LLM model for text-to-SQL conversion
+    model = server.models.create(
+        name=MODEL_ALIAS,
+        engine=ENGINE_NAME,
+        predict='completion',
+        # Must include input key mapping:
+        options={
+            'model_name': MODEL_NAME,
+            'prompt_template': '{{question}} Please provide the SQL query.',
+            'input_column': 'question'
+        }
+    )
+    print("⏳ Model creation started...")
+    status = model.get_status()
+    while status not in ("finished", "complete", "error"):
+        time.sleep(5)
         status = model.get_status()
-        while status not in ("finished", "complete", "error"):
-            time.sleep(5)
-            status = model.get_status()
-            print(f"Model status: {status}")
-        if status == "error":
-            print("❌ Model creation failed")
-            sys.exit(1)
-        print(f"✅ Model '{MODEL_ALIAS}' is ready")
+        print("Model status:", status)
+    if status == "error":
+        print("❌ Model creation failed"); sys.exit(1)
+    print("✅ Model is ready")
 
-    # 5️⃣ Create or get the Text-to-SQL skill
-    try:
-        server.skills.get(SKILL_NAME)
-        print(f"✅ Skill '{SKILL_NAME}' already exists")
-    except Exception:
-        server.skills.create(
-            name=SKILL_NAME,
-            type="sql",
-            params={
-                "database": DB_NAME,
-                "tables": [],
-                "description": "SQL interface over langchain_dev"
-            }
-        )
-        print(f"✅ Created skill '{SKILL_NAME}'")
+    # Create Text-to-SQL skill
+    server.skills.create(
+        name=SKILL_NAME,
+        type="sql",
+        params={
+            "database": DB_NAME,
+            "tables": [],  # Optionally list your tables
+            "description": "Text-to-SQL skill over langchain_dev"
+        }
+    )
+    print("✅ Skill created")
 
-    # 6️⃣ Create or fetch the agent
-    try:
-        agent = server.agents.get(AGENT_NAME)
-        print(f"✅ Agent '{AGENT_NAME}' already exists")
-    except Exception:
-        agent = server.agents.create(
-            name=AGENT_NAME,
-            model=model,
-            skills=[SKILL_NAME]
-        )
-        print(f"✅ Created agent '{AGENT_NAME}'")
+    # Create agent linking them
+    agent = server.agents.create(
+        name=AGENT_NAME,
+        model=model,
+        skills=[SKILL_NAME]
+    )
+    print("✅ Agent created")
 
-    # 7️⃣ Ask the agent and get SQL + answer
+    # Test the pipeline
     question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
 
