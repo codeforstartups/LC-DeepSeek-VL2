@@ -110,7 +110,7 @@ Here is the user's question:
     # 🛠️ Create SQL skill
     server.skills.create(
         name=SKILL_NAME,
-        type="sql",
+        type="text_to_sql",
         params={
             "database": DB_NAME,
             "tables": ["users"],

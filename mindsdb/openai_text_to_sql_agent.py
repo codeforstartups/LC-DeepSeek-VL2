@@ -7,7 +7,7 @@ import os
 # --------------------
 # CONFIGURATION
 # --------------------
-MINDSDB_PARAMS = {}  # e.g., connect to local or remote instance
+MINDSDB_PARAMS = {}  # adjust if connecting to remote MindsDB instance
 PG = {
     "user": "langchain_user",
     "password": "langchain_password",
@@ -15,17 +15,17 @@ PG = {
     "port": "5432",
     "database": "langchain_dev",
 }
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
 
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "openai_engine"
 MODEL_ALIAS = "text2sql_openai"
-MODEL_NAME = "gpt-4o-mini"  # Or "gpt-4"
+MODEL_NAME = "gpt-4o-mini"  # or "gpt-4", "gpt-3.5-turbo", etc.
 SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
 
 def main():
-    if OPENAI_API_KEY == "YOUR_OPENAI_API_KEY":
+    if not OPENAI_API_KEY:
         print("🛑 Please set the OPENAI_API_KEY environment variable.", file=sys.stderr)
         sys.exit(1)
 
@@ -36,14 +36,11 @@ def main():
         print("❌ Cannot connect to MindsDB:", e, file=sys.stderr)
         sys.exit(1)
 
-    # 🔁 Full Cleanup
-    for collection, name in [
-        ("agents", AGENT_NAME),
-        ("skills", SKILL_NAME),
-    ]:
+    # 🔁 Full cleanup
+    for coll, name in [("agents", AGENT_NAME), ("skills", SKILL_NAME)]:
         try:
-            getattr(server, collection).drop(name)
-            print(f"🗑️ Dropped {collection[:-1]} '{name}'")
+            getattr(server, coll).drop(name)
+            print(f"🗑️ Dropped {coll[:-1]} '{name}'")
         except:
             pass
 
@@ -59,13 +56,13 @@ def main():
     except:
         pass
 
-    # 🔧 Recreate database
+    # ⚙️ Recreate database
     server.databases.create(
         name=DB_NAME, engine="postgres", connection_args=PG
     )
     print(f"✅ Created database '{DB_NAME}'")
 
-    # ✅ Ensure ML engine
+    # 🔌 Configure OpenAI engine
     try:
         server.ml_engines.get(ENGINE_NAME)
         print(f"✅ Engine '{ENGINE_NAME}' already exists")
@@ -76,23 +73,22 @@ def main():
             connection_data={"openai_api_key": OPENAI_API_KEY}
         )
         print(f"✅ Created engine '{ENGINE_NAME}'")
+        # This matches official documentation :contentReference[oaicite:1]{index=1}
 
-    # 🧠 Create model with input mapping
+    # 🧠 Create LLM model
     model = server.models.create(
         name=MODEL_ALIAS,
-        predict='completion',
         engine=ENGINE_NAME,
+        predict='completion',
         options={
             'model_name': MODEL_NAME,
             'prompt_template': '''
-You are a world-class SQL generation-specific model.
-Your sole purpose is to generate a valid SQL query given a user's question and the database schema.
-Do not provide any explanation or natural language text, only the SQL query.
+You are a world-class SQL generator. Generate only SQL queries—no explanations.
 
-Here is the database schema:
+Schema:
 {{database_schema}}
 
-Here is the user's question:
+User question:
 {{question}}
 '''.strip()
         }
@@ -104,22 +100,23 @@ Here is the user's question:
         status = model.get_status()
         print("Model status:", status)
     if status == "error":
-        print("❌ Model creation failed"); sys.exit(1)
+        print("❌ Model creation failed")
+        sys.exit(1)
     print("✅ Model is ready")
 
-    # 🛠️ Create SQL skill
+    # 🛠️ Create SQL skill with table reference
     server.skills.create(
         name=SKILL_NAME,
         type="sql",
         params={
             "database": DB_NAME,
-            "tables": ["users"],
-            "description": "Text-to-SQL skill over langchain_dev"
+            "tables": ["users"],  # specify your relevant tables
+            "description": "SQL interface over users table"
         }
     )
     print("✅ Skill created")
 
-    # 🤖 Create agent
+    # 🤖 Create the agent
     agent = server.agents.create(
         name=AGENT_NAME,
         model=model,
@@ -127,7 +124,7 @@ Here is the user's question:
     )
     print("✅ Agent created")
 
-    # 🧪 Test it
+    # 🧪 Execute a test query
     question = "How many users are there in total?"
     reply = agent.completion([{"question": question, "answer": None}])
     sql = getattr(reply, "sql", None)
