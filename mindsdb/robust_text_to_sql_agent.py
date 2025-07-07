@@ -15,13 +15,13 @@ PG = {
 }
 DB_NAME = "langchain_pg_db"
 ENGINE_NAME = "ollama_deepseek_engine"
-ENGINE_CONN = {"ollama_serve_url": "http://13.59.72.219:11434"}
+ENGINE_CONN = {"ollama_serve_url": "http://host.docker.internal:11434"}
 MODEL_ALIAS = "text2sql_deepseek"
 MODEL_NAME = "deepseek-r1:1.5b"
 SKILL_NAME = "text2sql_skill"
 AGENT_NAME = "langchain_sql_agent"
 
-def main(): 
+def main():
     # 1️⃣ Connect to the MindsDB server
     try:
         server = mindsdb_sdk.connect(**MINDSDB_PARAMS)
