@@ -1,6 +1,5 @@
 # file: robust_text_to_sql_agent.py
 import mindsdb_sdk
-import pandas as pd
 import sys
 import time
 
@@ -107,8 +106,7 @@ def main():
 
     # 7️⃣ Ask the agent and get SQL + answer
     question = "How many users are there in total?"
-    df = pd.DataFrame([{"text": question}])
-    reply = agent.completion(df)
+    reply = agent.completion([{"text": question}])
 
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
