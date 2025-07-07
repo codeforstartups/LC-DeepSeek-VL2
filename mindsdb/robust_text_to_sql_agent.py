@@ -47,26 +47,27 @@ def main():
         server.ml_engines.create(name=ENGINE_NAME, handler="ollama", connection_data=ENGINE_CONN)
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
-    # 4️⃣ Create conversational model
-    model = server.models.create(
-        name=MODEL_ALIAS,
-        predict="completion",
-        engine=ENGINE_NAME,
-        options={"model_name": MODEL_NAME}
-    )
-    print("⏳ Model creation initiated...")
-
-    # ⏱️ Poll for status until complete/error
-    status = model.get_status()
-    print(f"Model status: {status}")
-    while status not in ("finished", "error", "complete"):
-        time.sleep(5)
+    # 4️⃣ Create or fetch conversational model
+    try:
+        model = server.models.get(MODEL_ALIAS)
+        print(f"✅ Model '{MODEL_ALIAS}' already exists")
+    except Exception:
+        model = server.models.create(
+            name=MODEL_ALIAS,
+            predict="completion",
+            engine=ENGINE_NAME,
+            options={"model_name": MODEL_NAME}
+        )
+        print("⏳ Model creation initiated...")
         status = model.get_status()
-        print(f"Model status: {status}")
-    if status in ("error",):
-        print("❌ Model training failed. Exiting.")
-        sys.exit(1)
-    print(f"✅ Model '{MODEL_ALIAS}' is ready")
+        while status not in ("finished", "error", "complete"):
+            time.sleep(5)
+            status = model.get_status()
+            print(f"Model status: {status}")
+        if status == "error":
+            print("❌ Model training failed. Exiting.")
+            sys.exit(1)
+        print(f"✅ Model '{MODEL_ALIAS}' is ready")
 
     # 5️⃣ Create Text-to-SQL skill
     try:
