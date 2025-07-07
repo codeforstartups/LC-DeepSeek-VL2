@@ -39,17 +39,21 @@ def main():
         print(f"✅ Created ML engine '{ENGINE_NAME}'")
 
     # Model creation or retrieval
+    # This check ensures the model is not recreated unnecessarily.
     try:
         model = server.models.get(MODEL_ALIAS)
         print(f"✅ Model '{MODEL_ALIAS}' already exists")
     except Exception:
+        print(f"⌛ Model '{MODEL_ALIAS}' not found, creating...")
         model = server.models.create(
             name=MODEL_ALIAS,
             engine=ENGINE_NAME,
-            predict='completion',
+            predict='answer', # The column we want the model to predict
             options={
-                'model_name': MODEL_NAME,
-                'prompt_template': '{{text}} Provide SQL that answers the question.'
+                'model_name': MODEL_NAME
+                # NOTE: We are intentionally REMOVING the prompt_template.
+                # The 'text2sql_skill' is responsible for creating the full prompt,
+                # so a custom template here would interfere with it.
             }
         )
         print("⏳ Model creation initiated...")
@@ -84,7 +88,8 @@ def main():
 
     # Ask the agent
     question = "How many users are there in total?"
-    reply = agent.completion([{"text": question}])
+    reply = agent.completion([{"question": question, "answer": None}])
+
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
 
