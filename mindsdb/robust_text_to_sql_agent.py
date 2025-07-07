@@ -70,7 +70,7 @@ def main():
             predict='completion',
             options={
                 'model_name': MODEL_NAME,
-                'prompt_template': '{{text}} Please provide the SQL query answering the question.'
+                'prompt_template': '{{question}} Please provide the SQL query answering the question.'
             }
         )
         print("⏳ Model creation initiated...")
@@ -114,7 +114,7 @@ def main():
 
     # 7️⃣ Ask the agent and get SQL + answer
     question = "How many users are there in total?"
-    reply = agent.completion([{"text": question}])
+    reply = agent.completion([{"question": question, "answer": None}])
 
     sql = getattr(reply, "sql", None)
     answer = getattr(reply, "answer", reply.content)
