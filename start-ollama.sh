@@ -17,11 +17,17 @@ else
   echo 'deepseek-r1:1.5b model already exists'
 fi
 
-if ! ollama list | grep -q 'sqlcoder:7b'; then
-  echo 'Pulling sqlcoder:7b model...'
-  ollama pull sqlcoder:7b
+# Remove old sqlcoder model if it exists
+if ollama list | grep -q 'sqlcoder:7b'; then
+  echo 'Removing old sqlcoder:7b model...'
+  ollama rm sqlcoder:7b
+fi
+
+if ! ollama list | grep -q 'duckdb-nsql:7b'; then
+  echo 'Pulling duckdb-nsql:7b model...'
+  ollama pull duckdb-nsql:7b
 else
-  echo 'sqlcoder:7b model already exists'
+  echo 'duckdb-nsql:7b model already exists'
 fi
 
 echo "Ollama setup complete!"
