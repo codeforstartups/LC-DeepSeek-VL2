@@ -145,7 +145,10 @@ uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 --workers 1\
 
   # 🌐 FRONTEND/BACKEND (Host Memory)
   [vision_backend]="\
-cd ../langchain-frontend-vision/backend && \
+cd ../langchain-frontend-vision && \
+echo '📥 Pulling latest code for Vision Backend...' && \
+git pull && \
+cd backend && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 echo '🔗 Starting Vision Backend on CPU...' && \
 source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate && \
@@ -155,6 +158,8 @@ uvicorn main:app --host 0.0.0.0 --port 3000 --workers 4\
 
   [vision_frontend]="\
 cd ../langchain-frontend-vision && \
+echo '📥 Pulling latest code for Vision Frontend...' && \
+git pull && \
 echo '🎨 Starting Vision Frontend...' && \
 npm install && \
 npm run build && \
