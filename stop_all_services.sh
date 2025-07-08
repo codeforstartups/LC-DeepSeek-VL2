@@ -13,8 +13,8 @@ sessions=$(get_sessions)
 
 if [[ -z "$sessions" ]]; then
     echo "⚠️  No running screen sessions found."
-    exit 0
-fi
+    echo "🐳 Proceeding to Docker cleanup..."
+else
 
 echo "📋 Found screen sessions:"
 echo "$sessions"
@@ -46,8 +46,7 @@ remaining_sessions=$(get_sessions)
 
 if [[ -z "$remaining_sessions" ]]; then
     echo "✅ All screen sessions stopped gracefully!"
-    exit 0
-fi
+else
 
 # 4️⃣ Force kill remaining sessions
 echo "⚠️  Some sessions still running. Force terminating..."
@@ -89,10 +88,13 @@ else
         session_id=$(echo "$sess" | cut -d'.' -f1)
         echo "   kill -9 $session_id"
     done
-    exit 1
+    echo "⚠️  Continuing to Docker cleanup despite remaining sessions..."
 fi
 
-echo "🎉 All screen sessions terminated!"
+echo "🎉 Screen session cleanup completed!"
+fi
+fi
+fi
 echo ""
 echo "🐳 Shutting down Docker services..."
 docker compose -f ollama-compose.yml down
