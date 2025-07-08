@@ -17,6 +17,13 @@ else
   echo 'deepseek-r1:1.5b model already exists'
 fi
 
+if ! ollama list | grep -q 'sqlcoder:7b'; then
+  echo 'Pulling sqlcoder:7b model...'
+  ollama pull sqlcoder:7b
+else
+  echo 'sqlcoder:7b model already exists'
+fi
+
 echo "Ollama setup complete!"
 
 # Keep the container running
