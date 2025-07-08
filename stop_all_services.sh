@@ -101,8 +101,7 @@ docker compose -f ollama-compose.yml down
 if docker ps -q -f name=mindsdb | grep -q .; then
     echo "🧠 Stopping MindsDB container..."
     docker stop mindsdb
-    docker rm mindsdb
-    echo "✅ MindsDB container stopped and removed."
+    echo "✅ MindsDB container stopped."
 else
     echo "ℹ️  MindsDB container not running."
 fi

@@ -123,7 +123,13 @@ docker compose -f ollama-compose.yml up\
 
   [mindsdb_cpu]="\
 echo '🧠 Starting MindsDB on CPU...' && \
-docker run -d --name mindsdb --network host -e MINDSDB_APIS=http,postgres,mysql mindsdb/mindsdb && \
+if docker ps -a -q -f name=mindsdb | grep -q .; then \
+  echo 'ℹ️  MindsDB container exists, starting it...' && \
+  docker start mindsdb; \
+else \
+  echo 'ℹ️  Creating new MindsDB container...' && \
+  docker run -d --name mindsdb --network host -e MINDSDB_APIS=http,postgres,mysql mindsdb/mindsdb; \
+fi && \
 echo '✅ MindsDB container started' && \
 sleep infinity\
 "
