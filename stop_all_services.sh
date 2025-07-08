@@ -96,4 +96,15 @@ echo "🎉 All screen sessions terminated!"
 echo ""
 echo "🐳 Shutting down Docker services..."
 docker compose -f ollama-compose.yml down
+
+# Stop MindsDB container if it's running
+if docker ps -q -f name=mindsdb | grep -q .; then
+    echo "🧠 Stopping MindsDB container..."
+    docker stop mindsdb
+    docker rm mindsdb
+    echo "✅ MindsDB container stopped and removed."
+else
+    echo "ℹ️  MindsDB container not running."
+fi
+
 echo "✅ Docker services stopped."

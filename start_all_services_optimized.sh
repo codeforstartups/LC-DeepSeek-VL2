@@ -121,6 +121,13 @@ chmod +x start-ollama.sh && \
 docker compose -f ollama-compose.yml up\
 "
 
+  [mindsdb_cpu]="\
+echo '🧠 Starting MindsDB on CPU...' && \
+docker run -d --name mindsdb --network host -e MINDSDB_APIS=http,postgres,mysql mindsdb/mindsdb && \
+echo '✅ MindsDB container started' && \
+sleep infinity\
+"
+
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
   [medical_imaging_gpu]="\
 source venv_medical_gpu/bin/activate && \
@@ -220,6 +227,7 @@ sleep 2
 echo "🐳 Phase 4: Starting Docker support services..."
 restart_service "ollama_models_cpu" "${SERVICES[ollama_models_cpu]}"
 sleep 5 # Give them a moment to initialize
+restart_service "mindsdb_cpu" "${SERVICES[mindsdb_cpu]}"
 
 # Start Vanna API after initiating Docker services
 echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
@@ -265,5 +273,6 @@ echo "  Translation API (CPU): http://localhost:8007"
 echo "  Vanna API (CPU):       http://localhost:8008"
 echo "  Robust Text-to-SQL API (CPU): http://localhost:8009"
 echo "  Ollama (CPU):          http://localhost:11434"
+echo "  MindsDB (CPU):         http://localhost:1833"
 echo ""
 echo "🎯 Optimization Complete! GPU memory should be ~55% with Medical+Face on GPU"
