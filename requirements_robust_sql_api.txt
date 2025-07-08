@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+mindsdb-sdk
+pandas
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pydantic
+requests

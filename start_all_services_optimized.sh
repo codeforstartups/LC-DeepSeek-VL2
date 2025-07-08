@@ -42,6 +42,7 @@ create_venv_if_missing "venv_metal_cpu" "requirements_thermal_gun_api.txt"
 create_venv_if_missing "venv_object_detection_cpu" "requirements__object_detection.txt"
 create_venv_if_missing "venv_translation_cpu" "requirements_translation.txt"
 create_venv_if_missing "venv_vanna_api" "requirements_vanna_api.txt"
+create_venv_if_missing "venv_robust_sql_api" "requirements_robust_sql_api.txt"
 
 echo "✅ All virtual environments ready!"
 
@@ -103,6 +104,13 @@ source venv_vanna_api/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 echo '🧠 Starting Vanna Text-to-SQL API on CPU...' && \
 uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
+"
+
+  [robust_sql_api_cpu]="\
+source venv_robust_sql_api/bin/activate && \
+export CUDA_VISIBLE_DEVICES=\"\" && \
+echo '🤖 Starting Robust Text-to-SQL API on CPU...' && \
+uvicorn robust_text_to_sql_api:app --host 0.0.0.0 --port 8009\
 "
 
   [ollama_models_cpu]="\
@@ -219,6 +227,12 @@ kill_process_on_port 8008
 restart_service "vanna_api_cpu" "${SERVICES[vanna_api_cpu]}"
 sleep 2
 
+# Start Robust Text-to-SQL API
+echo "🤖 Phase 6: Starting Robust Text-to-SQL API..."
+kill_process_on_port 8009
+restart_service "robust_sql_api_cpu" "${SERVICES[robust_sql_api_cpu]}"
+sleep 2
+
 restart_service "vision_backend" "${SERVICES[vision_backend]}"
 sleep 2
 restart_service "vision_frontend" "${SERVICES[vision_frontend]}"
@@ -249,6 +263,7 @@ echo "  Object Detection (CPU): http://localhost:8005"
 echo "  Thermal Gun (CPU):     http://localhost:8006"
 echo "  Translation API (CPU): http://localhost:8007"
 echo "  Vanna API (CPU):       http://localhost:8008"
+echo "  Robust Text-to-SQL API (CPU): http://localhost:8009"
 echo "  Ollama (CPU):          http://localhost:11434"
 echo ""
 echo "🎯 Optimization Complete! GPU memory should be ~55% with Medical+Face on GPU"

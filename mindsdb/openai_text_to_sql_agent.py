@@ -189,7 +189,14 @@ User question: {{question}}
     questions = [
         "How many users signed up in each month during 2023?",
         "What is the total number of users in the database?",
-        "Show me the latest 5 users who signed up"
+        "Show me the latest 5 users who signed up",
+        "Find users who signed up in July 2023",
+        "Get the average signup date by month",
+        "Show users whose username starts with 'a'",
+        "Count how many users signed up each day in August 2023",
+        "Find the first and last user to sign up",
+        "List all unique signup months in the database",
+        "Show users who signed up on weekends"
     ]
 
     print("\n" + "="*50)
