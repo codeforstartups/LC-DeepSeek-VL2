@@ -49,6 +49,19 @@ echo "✅ All virtual environments ready!"
 # 4️⃣ Map each screen → startup command with optimized GPU/CPU allocation
 declare -A SERVICES=(
 
+  [mindsdb_cpu]="\
+echo '🧠 Starting MindsDB on CPU...' && \
+if docker ps -a -q -f name=mindsdb | grep -q .; then \
+  echo 'ℹ️  MindsDB container exists, starting it...' && \
+  docker start mindsdb; \
+else \
+  echo 'ℹ️  Creating new MindsDB container...' && \
+  docker run -d --name mindsdb --network host -e MINDSDB_APIS=http,postgres,mysql mindsdb/mindsdb; \
+fi && \
+echo '✅ MindsDB container started' && \
+sleep infinity\
+"
+
   # 🖥️ CPU-BASED SERVICES (Host Memory)
   [video_api_cpu]="\
 source venv_video/bin/activate && \
@@ -106,32 +119,12 @@ echo '🧠 Starting Vanna Text-to-SQL API on CPU...' && \
 uvicorn vanna_api:app --host 0.0.0.0 --port 8008\
 "
 
-  [robust_sql_api_cpu]="\
-source venv_robust_sql_api/bin/activate && \
-export CUDA_VISIBLE_DEVICES=\"\" && \
-echo '🤖 Starting Robust Text-to-SQL API on CPU...' && \
-uvicorn robust_text_to_sql_api:app --host 0.0.0.0 --port 8009\
-"
-
   [ollama_models_cpu]="\
 export OLLAMA_NUM_GPU=0 && \
 export OLLAMA_HOST=\"0.0.0.0:11434\" && \
 echo '🤖 Starting Ollama Models on CPU...' && \
 chmod +x start-ollama.sh && \
 docker compose -f ollama-compose.yml up\
-"
-
-  [mindsdb_cpu]="\
-echo '🧠 Starting MindsDB on CPU...' && \
-if docker ps -a -q -f name=mindsdb | grep -q .; then \
-  echo 'ℹ️  MindsDB container exists, starting it...' && \
-  docker start mindsdb; \
-else \
-  echo 'ℹ️  Creating new MindsDB container...' && \
-  docker run -d --name mindsdb --network host -e MINDSDB_APIS=http,postgres,mysql mindsdb/mindsdb; \
-fi && \
-echo '✅ MindsDB container started' && \
-sleep infinity\
 "
 
   # 🚀 GPU-BASED SERVICES (T1 GPU Shared)
@@ -144,6 +137,13 @@ uvicorn medical_imaging_api:app --host 0.0.0.0 --port 8000 --workers 1\
 "
 
   # 🌐 FRONTEND/BACKEND (Host Memory)
+  [robust_sql_api_cpu]="\
+source venv_robust_sql_api/bin/activate && \
+export CUDA_VISIBLE_DEVICES=\"\" && \
+echo '🤖 Starting Robust Text-to-SQL API on CPU...' && \
+uvicorn robust_text_to_sql_api:app --host 0.0.0.0 --port 8009\
+"
+
   [vision_backend]="\
 cd ../langchain-frontend-vision && \
 echo '📥 Pulling latest code for Vision Backend...' && \
@@ -211,22 +211,27 @@ echo "🚀 Starting services in optimal order..."
 echo "📊 Memory Strategy: GPU=Medical Only, CPU=Everything Else"
 echo ""
 
+# Start MindsDB first
+echo "🧠 Phase 1: Starting Docker services (MindsDB)..."
+restart_service "mindsdb_cpu" "${SERVICES[mindsdb_cpu]}"
+sleep 5 # Give it a moment to initialize
+
 # Start GPU service first (medical imaging)
-echo "🏥 Phase 1: Starting GPU-based services..."
+echo "🏥 Phase 2: Starting GPU-based services..."
 restart_service "medical_imaging_gpu" "${SERVICES[medical_imaging_gpu]}"
 sleep 3
 restart_service "face_recognition_gpu" "${SERVICES[face_recognition_gpu]}"
 sleep 3
 
 # Start CPU-based core services
-echo "🖥️  Phase 2: Starting CPU-based core services..."
+echo "🖥️  Phase 3: Starting CPU-based core services..."
 restart_service "video_api_cpu" "${SERVICES[video_api_cpu]}"
 sleep 2
 restart_service "yolo_api_cpu" "${SERVICES[yolo_api_cpu]}"
 sleep 2
 
 # Start specialized CPU services
-echo "🔧 Phase 3: Starting specialized CPU services..."
+echo "🔧 Phase 4: Starting specialized CPU services..."
 restart_service "thermal_gun_cpu" "${SERVICES[thermal_gun_cpu]}"
 sleep 2
 restart_service "object_detection_cpu" "${SERVICES[object_detection_cpu]}"
@@ -235,19 +240,18 @@ restart_service "translation_api_cpu" "${SERVICES[translation_api_cpu]}"
 sleep 2
 
 # Start support services
-echo "🐳 Phase 4: Starting Docker support services..."
+echo "🐳 Phase 5: Starting Docker support services (Ollama)..."
 restart_service "ollama_models_cpu" "${SERVICES[ollama_models_cpu]}"
 sleep 5 # Give them a moment to initialize
-restart_service "mindsdb_cpu" "${SERVICES[mindsdb_cpu]}"
 
 # Start Vanna API after initiating Docker services
-echo "🧠 Phase 5: Starting Vanna API (dependent on Docker services)..."
+echo "🧠 Phase 6: Starting Vanna API (dependent on Docker services)..."
 kill_process_on_port 8008
 restart_service "vanna_api_cpu" "${SERVICES[vanna_api_cpu]}"
 sleep 2
 
 # Start Robust Text-to-SQL API
-echo "🤖 Phase 6: Starting Robust Text-to-SQL API..."
+echo "🤖 Phase 7: Starting Web UI and dependent APIs..."
 kill_process_on_port 8009
 restart_service "robust_sql_api_cpu" "${SERVICES[robust_sql_api_cpu]}"
 sleep 2
