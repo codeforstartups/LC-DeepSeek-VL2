@@ -3,7 +3,7 @@ import time
 from threading import Lock
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Qdrant
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
@@ -80,14 +80,17 @@ class EmbeddingService:
 
                 logger.info(f"Split documents into {len(documents)} chunks. Now embedding and adding to Qdrant...")
 
-                # Use from_documents to add the chunked documents to Qdrant.
-                # This handles embedding and storing, and creates the collection if needed.
-                Qdrant.from_documents(
-                    documents=documents,
-                    embedding=self.embeddings,
+                # Instantiate the Qdrant class with the existing client.
+                qdrant_store = Qdrant(
                     client=self.qdrant_client,
                     collection_name=collection_name,
+                    embeddings=self.embeddings,
                 )
+
+                # Now, add the documents to the store.
+                # This will create the collection automatically if it doesn't exist.
+                qdrant_store.add_documents(documents)
+
                 logger.info("✅ Chunks added successfully.")
                 return len(documents)
             except Exception as e:
