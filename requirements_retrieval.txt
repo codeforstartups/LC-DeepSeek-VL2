@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+langchain
+langchain-community
+qdrant-client
+langchain-text-splitters

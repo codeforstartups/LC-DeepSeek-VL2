@@ -43,6 +43,7 @@ create_venv_if_missing "venv_object_detection_cpu" "requirements__object_detecti
 create_venv_if_missing "venv_translation_cpu" "requirements_translation.txt"
 create_venv_if_missing "venv_vanna_api" "requirements_vanna_api.txt"
 create_venv_if_missing "venv_robust_sql_api" "requirements_robust_sql_api.txt"
+create_venv_if_missing "venv_retrieval_cpu" "requirements_retrieval.txt"
 
 echo "✅ All virtual environments ready!"
 
@@ -144,6 +145,13 @@ echo '🤖 Starting Robust Text-to-SQL API on CPU...' && \
 uvicorn robust_text_to_sql_api:app --host 0.0.0.0 --port 8009\
 "
 
+  [retrieval_api_cpu]="\
+source venv_retrieval_cpu/bin/activate && \
+export CUDA_VISIBLE_DEVICES=\"\" && \
+echo '🔍 Starting Embedding and Retrieval API on CPU...' && \
+uvicorn embedding_retrieval_api:app --host 0.0.0.0 --port 8010\
+"
+
   [vision_backend]="\
 cd ../langchain-frontend-vision && \
 echo '📥 Pulling latest code for Vision Backend...' && \
@@ -238,6 +246,8 @@ restart_service "object_detection_cpu" "${SERVICES[object_detection_cpu]}"
 sleep 2
 restart_service "translation_api_cpu" "${SERVICES[translation_api_cpu]}"
 sleep 2
+restart_service "retrieval_api_cpu" "${SERVICES[retrieval_api_cpu]}"
+sleep 2
 
 # Start support services
 echo "🐳 Phase 5: Starting Docker support services (Ollama)..."
@@ -287,6 +297,7 @@ echo "  Thermal Gun (CPU):     http://localhost:8006"
 echo "  Translation API (CPU): http://localhost:8007"
 echo "  Vanna API (CPU):       http://localhost:8008"
 echo "  Robust Text-to-SQL API (CPU): http://localhost:8009"
+echo "  Embedding API (CPU):   http://localhost:8010"
 echo "  Ollama (CPU):          http://localhost:11434"
 echo "  MindsDB (CPU):         http://localhost:1833"
 echo ""
