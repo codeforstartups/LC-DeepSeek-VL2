@@ -7,6 +7,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import Qdrant
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
 
 # --- Basic Configuration ---
 logging.basicConfig(level=logging.INFO)
@@ -69,6 +70,19 @@ class EmbeddingService:
         with self.lock:
             try:
                 logger.info(f"Received {len(texts)} documents to split and add to collection '{collection_name}'")
+
+                # Manually ensure the collection exists before adding to it.
+                # This is necessary because add_documents does not auto-create collections.
+                try:
+                    self.qdrant_client.get_collection(collection_name=collection_name)
+                    logger.info(f"Collection '{collection_name}' already exists.")
+                except Exception:
+                    logger.info(f"Collection '{collection_name}' not found. Creating it now.")
+                    # The nomic-embed-text model has a vector dimension of 768.
+                    self.qdrant_client.create_collection(
+                        collection_name=collection_name,
+                        vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+                    )
 
                 # Split the documents into smaller chunks suitable for embedding.
                 # create_documents handles a list of texts correctly.
