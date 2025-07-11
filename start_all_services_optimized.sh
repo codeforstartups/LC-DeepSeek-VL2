@@ -65,6 +65,8 @@ sleep infinity\
 
   # 🖥️ CPU-BASED SERVICES (Host Memory)
   [video_api_cpu]="\
+echo '📥 Pulling latest code for Video API...' && \
+git pull && \
 source venv_video/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 export DEEPSEEK_API_URL=\"http://localhost:8000/analyze/\" && \
