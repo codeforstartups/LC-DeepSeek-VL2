@@ -8,6 +8,10 @@ set -euo pipefail
 # 1️⃣ Go to this script's own dir (LC-DeepSeek-VL2)
 cd "$(dirname "$0")"
 
+echo "📥 Pulling latest code from Git..."
+git pull
+echo ""
+
 echo "🚀 Starting LC-DeepSeek-VL2 Services with Memory Optimization..."
 echo "📊 Strategy: GPU T1 = Medical Imaging Only, CPU = Everything Else"
 echo "═══════════════════════════════════════════════════════════════"
@@ -65,8 +69,6 @@ sleep infinity\
 
   # 🖥️ CPU-BASED SERVICES (Host Memory)
   [video_api_cpu]="\
-echo '📥 Pulling latest code for Video API...' && \
-git pull && \
 source venv_video/bin/activate && \
 export CUDA_VISIBLE_DEVICES=\"\" && \
 export DEEPSEEK_API_URL=\"http://localhost:8000/analyze/\" && \
