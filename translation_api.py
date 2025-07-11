@@ -20,7 +20,9 @@ LANGUAGE_CODE_MAP = {
     "zh": "zho_Hans", "mandarin": "zho_Hans", "cn": "zho_Hans",
     "fa": "pes_Arab",
     "ja": "jpn_Jpan", "it": "ita_Latn",
-    "pt": "por_Latn", "ko": "kor_Hang", "nl": "nld_Latn"
+    "pt": "por_Latn", "ko": "kor_Hang", "nl": "nld_Latn",
+    "tr": "tur_Latn", "vi": "vie_Latn", "pl": "pol_Latn",
+    "sv": "swe_Latn", "th": "tha_Thai", "id": "ind_Latn"
 }
 
 # --- Request and Response Models ---
