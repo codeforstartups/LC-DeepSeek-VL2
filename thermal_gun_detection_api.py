@@ -12,6 +12,14 @@ from ultralytics import YOLO
 from urllib.parse import urlparse
 import torch
 
+# pytube2 import with fallback
+try:
+    from pytube import YouTube
+    PYTUBE_AVAILABLE = True
+except ImportError:
+    PYTUBE_AVAILABLE = False
+    logging.warning("⚠️ pytube2 not installed. YouTube URLs won't work. Install with: pip install pytube2")
+
 app = FastAPI(title="Thermal Gun Detection API", version="1.0.0")
 logger = logging.getLogger("thermal_gun_detection")
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +46,72 @@ async def startup_event():
     except Exception as e:
         logger.error(f"❌ Failed to load model: {e}")
         raise RuntimeError("Model loading failed")
+
+def is_youtube_url(url: str) -> bool:
+    """Check if URL is a YouTube URL"""
+    youtube_domains = [
+        'youtube.com', 'youtu.be', 'www.youtube.com', 'm.youtube.com'
+    ]
+
+    parsed = urlparse(url.lower())
+    domain = parsed.netloc.replace('www.', '')
+
+    return any(youtube_domain in domain for youtube_domain in youtube_domains)
+
+def download_youtube_video(video_url: str, output_path: str, request_id: str):
+    """Download YouTube video using pytube2"""
+    if not PYTUBE_AVAILABLE:
+        raise HTTPException(400, "pytube2 not available. Cannot download YouTube URLs.")
+
+    logger.info(f"[{request_id}] Downloading YouTube video with pytube2...")
+
+    try:
+        # Create YouTube object
+        yt = YouTube(video_url)
+
+        logger.info(f"[{request_id}] YouTube Video: {yt.title}")
+        logger.info(f"[{request_id}] Duration: {yt.length} seconds")
+        logger.info(f"[{request_id}] Views: {yt.views}")
+
+        # Get best progressive stream (video + audio in one file)
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+
+        if not stream:
+            # Fallback: get best available stream
+            stream = yt.streams.get_highest_resolution()
+
+        if not stream:
+            raise HTTPException(400, "No suitable video stream found")
+
+        logger.info(f"[{request_id}] Selected quality: {stream.resolution} - {stream.mime_type}")
+
+        # Download to specific path
+        downloaded_file = stream.download(output_path=os.path.dirname(output_path),
+                                        filename=os.path.basename(output_path))
+
+        logger.info(f"[{request_id}] YouTube video downloaded successfully with pytube2")
+        return downloaded_file
+
+    except Exception as e:
+        logger.error(f"[{request_id}] pytube2 error: {str(e)}")
+        raise HTTPException(400, f"Failed to download YouTube video: {str(e)}")
+
+def download_direct_video(video_url: str, temp_video_path: str, request_id: str):
+    """Download direct video URL using requests (existing logic)"""
+    logger.info(f"[{request_id}] Downloading direct video with requests...")
+
+    try:
+        r = requests.get(video_url, stream=True, timeout=60)
+        r.raise_for_status()
+
+        with open(temp_video_path, 'wb') as temp_file:
+            for chunk in r.iter_content(8192):
+                temp_file.write(chunk)
+
+        logger.info(f"[{request_id}] Direct video downloaded successfully")
+
+    except Exception as e:
+        raise HTTPException(400, f"Failed to download direct video: {str(e)}")
 
 def extract_frames_1fps(video_path: str, out_dir: str):
     """Extract frames at 1 FPS from video"""
@@ -195,7 +269,12 @@ async def detect_thermal_guns_in_video(
     video_url: str = Body(..., embed=True),
     confidence_threshold: float = Body(0.25, embed=True)
 ):
-    """Detect thermal guns in video frames using trained YOLO model"""
+    """Detect thermal guns in video frames using trained YOLO model
+
+    Supports:
+    - Direct video URLs (.mp4, .avi, .mov, .mkv)
+    - YouTube URLs (requires pytube2)
+    """
 
     if model is None:
         raise HTTPException(500, "Model not loaded")
@@ -204,11 +283,19 @@ async def detect_thermal_guns_in_video(
     request_id = str(uuid.uuid4())[:8]
     logger.info(f"[{request_id}] Starting thermal gun detection in video: {video_url}")
 
-    # Validate video URL
-    parsed_url = urlparse(video_url)
-    ext = Path(parsed_url.path).suffix.lower()
-    if ext not in {".mp4", ".avi", ".mov", ".mkv"}:
-        raise HTTPException(400, f"Unsupported video format: '{ext}'. Supported: .mp4, .avi, .mov, .mkv")
+    # Check if it's a YouTube URL
+    is_youtube = is_youtube_url(video_url)
+
+    # Validate URL format
+    if not is_youtube:
+        # For direct URLs, validate file extension
+        parsed_url = urlparse(video_url)
+        ext = Path(parsed_url.path).suffix.lower()
+        if ext not in {".mp4", ".avi", ".mov", ".mkv"}:
+            raise HTTPException(400, f"Unsupported video format: '{ext}'. Supported: .mp4, .avi, .mov, .mkv for direct URLs, or YouTube URLs")
+    else:
+        # For YouTube URLs, use .mp4 as default extension
+        ext = ".mp4"
 
     temp_video_path = None
     work_dir = None
@@ -219,20 +306,20 @@ async def detect_thermal_guns_in_video(
         frame_dir = os.path.join(work_dir, "frames")
         os.makedirs(frame_dir, exist_ok=True)
 
-        # Download video
+        # Create temporary video file path
+        temp_video_path = os.path.join(work_dir, f"video_{request_id}{ext}")
+
+        # Download video using appropriate method
         logger.info(f"[{request_id}] Downloading video...")
-        temp_video_fd, temp_video_path = tempfile.mkstemp(suffix=ext, prefix=f"video_{request_id}_")
 
-        try:
-            r = requests.get(video_url, stream=True, timeout=60)
-            r.raise_for_status()
-
-            with os.fdopen(temp_video_fd, 'wb') as temp_file:
-                for chunk in r.iter_content(8192):
-                    temp_file.write(chunk)
-
-        except Exception as e:
-            raise HTTPException(400, f"Failed to download video: {str(e)}")
+        if is_youtube:
+            # Use pytube2 for YouTube URLs
+            actual_video_path = download_youtube_video(video_url, temp_video_path, request_id)
+            # pytube2 might change the filename, so update our path
+            temp_video_path = actual_video_path
+        else:
+            # Use requests for direct URLs
+            download_direct_video(video_url, temp_video_path, request_id)
 
         logger.info(f"[{request_id}] Video downloaded successfully")
 
@@ -318,7 +405,16 @@ async def health_check():
         "status": "healthy",
         "model_loaded": model is not None,
         "device": device,
-        "model_info": "Thermal Gun Detection YOLOv8" if model else "No model loaded"
+        "model_info": "Thermal Gun Detection YOLOv8" if model else "No model loaded",
+        "pytube2_available": PYTUBE_AVAILABLE,
+        "download_methods": {
+            "youtube_urls": "pytube2" if PYTUBE_AVAILABLE else "not available",
+            "direct_urls": "requests"
+        },
+        "supported_sources": [
+            "Direct video URLs (.mp4, .avi, .mov, .mkv)",
+            "YouTube URLs" if PYTUBE_AVAILABLE else "YouTube URLs (install pytube2)"
+        ]
     }
 
 @app.get("/model_info")

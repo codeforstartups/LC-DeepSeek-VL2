@@ -8,3 +8,4 @@ requests
 ultralytics
 torch
 torchvision
+pytube2
