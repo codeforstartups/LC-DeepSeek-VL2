@@ -69,9 +69,20 @@ def download_youtube_video(video_url: str, output_path: str, request_id: str):
         # Create YouTube object
         yt = YouTube(video_url)
 
-        logger.info(f"[{request_id}] YouTube Video: {yt.title}")
-        logger.info(f"[{request_id}] Duration: {yt.length} seconds")
-        logger.info(f"[{request_id}] Views: {yt.views}")
+        # Try to get basic info first
+        try:
+            title = yt.title or "Unknown Title"
+            length = yt.length or 0
+            views = yt.views or 0
+        except Exception as info_error:
+            logger.warning(f"[{request_id}] Could not get video info: {info_error}")
+            title = "Unknown Title"
+            length = 0
+            views = 0
+
+        logger.info(f"[{request_id}] YouTube Video: {title}")
+        logger.info(f"[{request_id}] Duration: {length} seconds")
+        logger.info(f"[{request_id}] Views: {views}")
 
         # Get best progressive stream (video + audio in one file)
         stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
@@ -81,7 +92,11 @@ def download_youtube_video(video_url: str, output_path: str, request_id: str):
             stream = yt.streams.get_highest_resolution()
 
         if not stream:
-            raise HTTPException(400, "No suitable video stream found")
+            # Second fallback: get any video stream
+            stream = yt.streams.filter(file_extension='mp4').first()
+
+        if not stream:
+            raise HTTPException(400, "No suitable video stream found for this YouTube video")
 
         logger.info(f"[{request_id}] Selected quality: {stream.resolution} - {stream.mime_type}")
 
@@ -93,8 +108,18 @@ def download_youtube_video(video_url: str, output_path: str, request_id: str):
         return downloaded_file
 
     except Exception as e:
-        logger.error(f"[{request_id}] pytube2 error: {str(e)}")
-        raise HTTPException(400, f"Failed to download YouTube video: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"[{request_id}] pytube2 error: {error_msg}")
+
+        # Provide helpful error messages
+        if "Exception while accessing title" in error_msg:
+            raise HTTPException(400, f"YouTube video access failed - Video may be private, restricted, or unavailable. Try a different YouTube URL.")
+        elif "HTTP Error 403" in error_msg:
+            raise HTTPException(400, f"YouTube blocked access - Video may be age-restricted or region-locked.")
+        elif "No suitable video stream" in error_msg:
+            raise HTTPException(400, f"No downloadable streams found for this YouTube video.")
+        else:
+            raise HTTPException(400, f"Failed to download YouTube video: {error_msg}")
 
 def download_direct_video(video_url: str, temp_video_path: str, request_id: str):
     """Download direct video URL using requests (existing logic)"""
